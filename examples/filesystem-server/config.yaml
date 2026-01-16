@@ -1,0 +1,26 @@
+backend:
+  type: "filesystem"
+  config:
+    workspace_root: "./workspace"
+    max_file_size: 10485760 # 10MB
+    read_only: false
+    # allowed_extensions: [".txt", ".md", ".json"]
+    # blocked_extensions: [".exe", ".sh", ".bat"]
+
+transport:
+  type: "http"
+  http:
+    address: ":8080"
+    read_timeout: 30s
+    write_timeout: 30s
+    max_request_size: 10485760
+    allowed_origins: ["*"]
+
+observability:
+  enabled: true
+  metrics_address: ":9091"
+
+logging:
+  level: "info"
+  format: "json"
+  add_source: true
