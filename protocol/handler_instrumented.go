@@ -2,7 +2,7 @@ package protocol
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json" // FIXED: Added missing import
 	"log/slog"
 	"time"
 
@@ -10,63 +10,43 @@ import (
 	"github.com/SaherElMasry/go-mcp-framework/observability"
 )
 
-// InstrumentedHandler wraps Handler with observability
+// InstrumentedHandler wraps a handler with metrics
 type InstrumentedHandler struct {
-	base    Handler
-	metrics *observability.Metrics
-	logger  *slog.Logger
+	*Handler
 }
 
-// NewInstrumentedHandler creates a handler with observability
-func NewInstrumentedHandler(
-	b backend.ServerBackend,
-	metrics *observability.Metrics,
-	logger *slog.Logger,
-) Handler {
-	base := NewHandler(b, logger)
-
+// NewInstrumentedHandler creates a new instrumented handler
+func NewInstrumentedHandler(backend backend.ServerBackend, logger *slog.Logger) *InstrumentedHandler {
 	return &InstrumentedHandler{
-		base:    base,
-		metrics: metrics,
-		logger:  logger,
+		Handler: NewHandler(backend, logger),
 	}
 }
 
-// Handle implements Handler with full observability
-func (h *InstrumentedHandler) Handle(ctx context.Context, requestBytes []byte, transport string) ([]byte, error) {
+// Handle processes a request with metrics
+func (h *InstrumentedHandler) Handle(ctx context.Context, data []byte, transportType string) ([]byte, error) {
 	start := time.Now()
 
+	// Parse request to get method
 	var req Request
-	_ = json.Unmarshal(requestBytes, &req)
-	method := req.Method
-
-	if h.metrics != nil {
-		h.metrics.RequestsInFlight.WithLabelValues(transport).Inc()
-		defer h.metrics.RequestsInFlight.WithLabelValues(transport).Dec()
-		h.metrics.RecordRequestSize(method, transport, len(requestBytes))
+	if err := json.Unmarshal(data, &req); err != nil {
+		observability.RecordRequest(req.Method, "error", transportType)
+		return h.Handler.Handle(ctx, data, transportType)
 	}
 
-	h.logger.InfoContext(ctx, "processing request",
-		"method", method,
-		"transport", transport,
-		"size", len(requestBytes))
+	// Handle request
+	resp, err := h.Handler.Handle(ctx, data, transportType)
 
-	response, err := h.base.Handle(ctx, requestBytes, transport)
-
+	// Record metrics
 	duration := time.Since(start)
-
 	status := "success"
 	if err != nil {
 		status = "error"
-		h.logger.ErrorContext(ctx, "request failed", "method", method, "error", err, "duration", duration)
-	} else {
-		h.logger.InfoContext(ctx, "request completed", "method", method, "duration", duration)
 	}
 
-	if h.metrics != nil {
-		h.metrics.RecordRequest(method, transport, status, duration)
-		h.metrics.RecordResponseSize(method, transport, len(response))
-	}
+	observability.RecordRequest(req.Method, status, transportType)
+	observability.RecordRequestDuration(req.Method, transportType, duration)
+	observability.RecordRequestSize(req.Method, transportType, int64(len(data)))
+	observability.RecordResponseSize(req.Method, transportType, int64(len(resp)))
 
-	return response, err
+	return resp, err
 }

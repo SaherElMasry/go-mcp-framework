@@ -3,41 +3,26 @@ package backend
 import (
 	"context"
 	"fmt"
-	"sync"
 )
 
-// BaseBackend provides automatic tool/resource registration and routing
+// BaseBackend provides common functionality for backends
 type BaseBackend struct {
-	name      string
-	tools     map[string]*ToolRegistration
-	resources map[string]*ResourceRegistration
-	mu        sync.RWMutex
+	name              string
+	tools             map[string]ToolDefinition
+	handlers          map[string]ToolHandler
+	streamingHandlers map[string]StreamingHandler // NEW
 }
 
-// ToolRegistration contains a tool definition and its handler
-type ToolRegistration struct {
-	Definition ToolDefinition
-	Handler    ToolHandler
-}
-
-// ResourceRegistration contains a resource definition and its provider
-type ResourceRegistration struct {
-	Definition ResourceDefinition
-	Provider   ResourceProvider
-}
-
-// ToolHandler is a function that executes a tool
-type ToolHandler func(ctx context.Context, args map[string]interface{}) (interface{}, error)
-
-// ResourceProvider is a function that provides a resource
-type ResourceProvider func(ctx context.Context) (string, error)
+// StreamingHandler is the function signature for streaming tools
+type StreamingHandler func(ctx context.Context, args map[string]interface{}, emit StreamingEmitter) error
 
 // NewBaseBackend creates a new base backend
 func NewBaseBackend(name string) *BaseBackend {
 	return &BaseBackend{
-		name:      name,
-		tools:     make(map[string]*ToolRegistration),
-		resources: make(map[string]*ResourceRegistration),
+		name:              name,
+		tools:             make(map[string]ToolDefinition),
+		handlers:          make(map[string]ToolHandler),
+		streamingHandlers: make(map[string]StreamingHandler), // NEW
 	}
 }
 
@@ -46,82 +31,65 @@ func (b *BaseBackend) Name() string {
 	return b.name
 }
 
-// RegisterTool registers a tool with its handler
-func (b *BaseBackend) RegisterTool(def ToolDefinition, handler ToolHandler) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.tools[def.Name] = &ToolRegistration{
-		Definition: def,
-		Handler:    handler,
-	}
-}
-
-// RegisterResource registers a resource with its provider
-func (b *BaseBackend) RegisterResource(def ResourceDefinition, provider ResourceProvider) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.resources[def.URI] = &ResourceRegistration{
-		Definition: def,
-		Provider:   provider,
-	}
-}
-
-// ListTools returns all registered tools
-func (b *BaseBackend) ListTools(ctx context.Context) ([]ToolDefinition, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	tools := make([]ToolDefinition, 0, len(b.tools))
-	for _, reg := range b.tools {
-		tools = append(tools, reg.Definition)
-	}
-	return tools, nil
-}
-
-// ExecuteTool executes a tool by name
-func (b *BaseBackend) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (interface{}, error) {
-	b.mu.RLock()
-	reg, exists := b.tools[name]
-	b.mu.RUnlock()
-
-	if !exists {
-		return nil, fmt.Errorf("unknown tool: %s", name)
-	}
-
-	return reg.Handler(ctx, args)
-}
-
-// ListResources returns all registered resources
-func (b *BaseBackend) ListResources(ctx context.Context) ([]ResourceDefinition, error) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	resources := make([]ResourceDefinition, 0, len(b.resources))
-	for _, reg := range b.resources {
-		resources = append(resources, reg.Definition)
-	}
-	return resources, nil
-}
-
-// ReadResource reads a resource by URI
-func (b *BaseBackend) ReadResource(ctx context.Context, uri string) (string, error) {
-	b.mu.RLock()
-	reg, exists := b.resources[uri]
-	b.mu.RUnlock()
-
-	if !exists {
-		return "", fmt.Errorf("unknown resource: %s", uri)
-	}
-
-	return reg.Provider(ctx)
-}
-
-// Initialize is called when the backend is created (override if needed)
+// Initialize initializes the backend
 func (b *BaseBackend) Initialize(ctx context.Context, config map[string]interface{}) error {
 	return nil
 }
 
-// Close is called when the server shuts down (override if needed)
+// Close closes the backend
 func (b *BaseBackend) Close() error {
 	return nil
+}
+
+// RegisterTool registers a regular tool
+func (b *BaseBackend) RegisterTool(tool ToolDefinition, handler ToolHandler) {
+	tool.Streaming = false
+	b.tools[tool.Name] = tool
+	b.handlers[tool.Name] = handler
+}
+
+// RegisterStreamingTool registers a streaming tool (NEW)
+func (b *BaseBackend) RegisterStreamingTool(tool ToolDefinition, handler StreamingHandler) {
+	tool.Streaming = true
+	b.tools[tool.Name] = tool
+	b.streamingHandlers[tool.Name] = handler
+}
+
+// ListTools returns all registered tools
+func (b *BaseBackend) ListTools() []ToolDefinition {
+	tools := make([]ToolDefinition, 0, len(b.tools))
+	for _, tool := range b.tools {
+		tools = append(tools, tool)
+	}
+	return tools
+}
+
+// GetTool retrieves a tool definition
+func (b *BaseBackend) GetTool(name string) (ToolDefinition, bool) {
+	tool, ok := b.tools[name]
+	return tool, ok
+}
+
+// CallTool executes a regular tool
+func (b *BaseBackend) CallTool(ctx context.Context, name string, args map[string]interface{}) (interface{}, error) {
+	handler, ok := b.handlers[name]
+	if !ok {
+		return nil, fmt.Errorf("tool not found: %s", name)
+	}
+	return handler(ctx, args)
+}
+
+// IsStreamingTool checks if a tool supports streaming (NEW)
+func (b *BaseBackend) IsStreamingTool(name string) bool {
+	_, ok := b.streamingHandlers[name]
+	return ok
+}
+
+// CallStreamingTool executes a streaming tool (NEW)
+func (b *BaseBackend) CallStreamingTool(ctx context.Context, name string, args map[string]interface{}, emit StreamingEmitter) error {
+	handler, ok := b.streamingHandlers[name]
+	if !ok {
+		return fmt.Errorf("streaming tool not found: %s", name)
+	}
+	return handler(ctx, args, emit)
 }

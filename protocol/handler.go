@@ -9,219 +9,181 @@ import (
 	"github.com/SaherElMasry/go-mcp-framework/backend"
 )
 
-// Handler processes MCP protocol messages
-type Handler interface {
-	Handle(ctx context.Context, requestBytes []byte, transport string) ([]byte, error)
-}
-
-// BaseHandler implements the core MCP protocol handler
-type BaseHandler struct {
-	backend    backend.ServerBackend
-	logger     *slog.Logger
-	serverInfo ServerInfo
+// Handler handles JSON-RPC requests
+type Handler struct {
+	backend backend.ServerBackend
+	logger  *slog.Logger
 }
 
 // NewHandler creates a new protocol handler
-func NewHandler(b backend.ServerBackend, logger *slog.Logger) Handler {
+func NewHandler(backend backend.ServerBackend, logger *slog.Logger) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
-	return &BaseHandler{
-		backend: b,
+	return &Handler{
+		backend: backend,
 		logger:  logger,
-		serverInfo: ServerInfo{
-			Name:    "MCP Server",
-			Version: "1.0.0",
-		},
 	}
 }
 
 // Handle processes a JSON-RPC request
-func (h *BaseHandler) Handle(ctx context.Context, requestBytes []byte, transport string) ([]byte, error) {
+func (h *Handler) Handle(ctx context.Context, data []byte, transportType string) ([]byte, error) {
 	var req Request
-	if err := json.Unmarshal(requestBytes, &req); err != nil {
-		h.logger.Error("failed to parse request", "error", err)
-		return h.buildErrorResponse(nil, ParseError("invalid JSON"))
+	if err := json.Unmarshal(data, &req); err != nil {
+		return h.errorResponse(nil, NewParseError(err))
 	}
 
-	h.logger.Debug("received request", "method", req.Method, "id", req.ID)
+	h.logger.Debug("handling request",
+		"method", req.Method,
+		"id", req.ID,
+		"transport", transportType)
 
-	result, err := h.routeRequest(ctx, &req)
+	var resp Response
+	resp.JSONRPC = "2.0"
+	resp.ID = req.ID
 
-	if err != nil {
-		return h.buildErrorResponseFromError(req.ID, err)
-	}
-
-	return h.buildSuccessResponse(req.ID, result)
-}
-
-func (h *BaseHandler) routeRequest(ctx context.Context, req *Request) (interface{}, error) {
 	switch req.Method {
-	case "initialize":
-		return h.handleInitialize(ctx, req)
 	case "tools/list":
-		return h.handleListTools(ctx, req)
+		result, err := h.handleToolsList(ctx)
+		if err != nil {
+			resp.Error = err
+		} else {
+			resp.Result = result
+		}
+
 	case "tools/call":
-		return h.handleCallTool(ctx, req)
-	case "resources/list":
-		return h.handleListResources(ctx, req)
-	case "resources/read":
-		return h.handleReadResource(ctx, req)
-	case "ping":
-		return h.handlePing(ctx, req)
+		result, err := h.handleToolsCall(ctx, req.Params)
+		if err != nil {
+			resp.Error = err
+		} else {
+			resp.Result = result
+		}
+
 	default:
-		return nil, MethodNotFound(req.Method)
+		resp.Error = NewMethodNotFound(req.Method)
 	}
+
+	return json.Marshal(resp)
 }
 
-func (h *BaseHandler) handleInitialize(ctx context.Context, req *Request) (interface{}, error) {
-	var params InitializeParams
-	if len(req.Params) > 0 {
-		if err := json.Unmarshal(req.Params, &params); err != nil {
-			return nil, InvalidParams("invalid initialize parameters")
+// handleToolsList handles the tools/list method
+func (h *Handler) handleToolsList(ctx context.Context) (interface{}, *Error) {
+	tools := h.backend.ListTools()
+
+	toolInfos := make([]ToolInfo, len(tools))
+	for i, tool := range tools {
+		toolInfos[i] = ToolInfo{
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: h.convertParametersToSchema(tool.Parameters),
 		}
 	}
 
-	h.logger.Info("client connected", "client", params.ClientInfo.Name)
-
-	return InitializeResult{
-		ProtocolVersion: "2024-11-05",
-		ServerInfo:      h.serverInfo,
-		Capabilities: map[string]interface{}{
-			"tools":     map[string]interface{}{},
-			"resources": map[string]interface{}{},
-		},
+	return map[string]interface{}{
+		"tools": toolInfos,
 	}, nil
 }
 
-func (h *BaseHandler) handleListTools(ctx context.Context, req *Request) (interface{}, error) {
-	tools, err := h.backend.ListTools(ctx)
-	if err != nil {
-		h.logger.Error("failed to list tools", "error", err)
-		return nil, InternalError(fmt.Sprintf("failed to list tools: %v", err))
+// handleToolsCall handles the tools/call method
+func (h *Handler) handleToolsCall(ctx context.Context, params map[string]interface{}) (interface{}, *Error) {
+	toolName, ok := params["name"].(string)
+	if !ok {
+		return nil, NewInvalidParams("missing or invalid 'name' parameter")
 	}
 
-	return map[string]interface{}{"tools": tools}, nil
+	args, ok := params["arguments"].(map[string]interface{})
+	if !ok {
+		args = make(map[string]interface{})
+	}
+
+	// Execute tool
+	result, err := h.backend.CallTool(ctx, toolName, args)
+	if err != nil {
+		return nil, NewInternalError(err)
+	}
+
+	// Convert result to MCP format
+	return h.convertToToolCallResult(result), nil
 }
 
-func (h *BaseHandler) handleCallTool(ctx context.Context, req *Request) (interface{}, error) {
-	var params CallToolParams
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return nil, InvalidParams("invalid tools/call parameters")
+// convertParametersToSchema converts tool parameters to JSON Schema
+func (h *Handler) convertParametersToSchema(params []backend.Parameter) map[string]interface{} {
+	properties := make(map[string]interface{})
+	required := make([]string, 0)
+
+	for _, param := range params {
+		prop := map[string]interface{}{
+			"type":        param.Type,
+			"description": param.Description,
+		}
+
+		if len(param.Enum) > 0 {
+			prop["enum"] = param.Enum
+		}
+
+		if param.Default != nil {
+			prop["default"] = param.Default
+		}
+
+		if param.Minimum != nil {
+			prop["minimum"] = *param.Minimum
+		}
+
+		if param.Maximum != nil {
+			prop["maximum"] = *param.Maximum
+		}
+
+		properties[param.Name] = prop
+
+		if param.Required {
+			required = append(required, param.Name)
+		}
 	}
 
-	if params.Name == "" {
-		return nil, InvalidParams("tool name is required")
+	schema := map[string]interface{}{
+		"type":       "object",
+		"properties": properties,
 	}
 
-	h.logger.Info("executing tool", "tool", params.Name)
+	if len(required) > 0 {
+		schema["required"] = required
+	}
 
-	result, err := h.backend.ExecuteTool(ctx, params.Name, params.Arguments)
+	return schema
+}
+
+// convertToToolCallResult converts a result to MCP ToolCallResult format
+func (h *Handler) convertToToolCallResult(result interface{}) ToolCallResult {
+	// Convert result to JSON string
+	resultJSON, err := json.Marshal(result)
 	if err != nil {
-		h.logger.Error("tool execution failed", "tool", params.Name, "error", err)
-		return nil, categorizeError(err)
+		return ToolCallResult{
+			Content: []ContentItem{
+				{
+					Type: "text",
+					Text: fmt.Sprintf("%v", result),
+				},
+			},
+		}
 	}
 
-	return CallToolResult{
-		Content: []ContentBlock{
+	return ToolCallResult{
+		Content: []ContentItem{
 			{
 				Type: "text",
-				Text: formatToolResult(result),
+				Text: string(resultJSON),
 			},
 		},
-	}, nil
+	}
 }
 
-func (h *BaseHandler) handleListResources(ctx context.Context, req *Request) (interface{}, error) {
-	resources, err := h.backend.ListResources(ctx)
-	if err != nil {
-		h.logger.Error("failed to list resources", "error", err)
-		return nil, InternalError(fmt.Sprintf("failed to list resources: %v", err))
-	}
-
-	return map[string]interface{}{"resources": resources}, nil
-}
-
-func (h *BaseHandler) handleReadResource(ctx context.Context, req *Request) (interface{}, error) {
-	var params ReadResourceParams
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return nil, InvalidParams("invalid resources/read parameters")
-	}
-
-	if params.URI == "" {
-		return nil, InvalidParams("resource URI is required")
-	}
-
-	h.logger.Info("reading resource", "uri", params.URI)
-
-	content, err := h.backend.ReadResource(ctx, params.URI)
-	if err != nil {
-		h.logger.Error("resource read failed", "uri", params.URI, "error", err)
-		return nil, categorizeError(err)
-	}
-
-	return ReadResourceResult{
-		Contents: []ResourceContent{
-			{
-				URI:      params.URI,
-				MimeType: "text/plain",
-				Text:     content,
-			},
-		},
-	}, nil
-}
-
-func (h *BaseHandler) handlePing(ctx context.Context, req *Request) (interface{}, error) {
-	return map[string]string{"status": "ok"}, nil
-}
-
-func (h *BaseHandler) buildSuccessResponse(id *int, result interface{}) ([]byte, error) {
+// errorResponse creates an error response
+func (h *Handler) errorResponse(id interface{}, err *Error) ([]byte, error) {
 	resp := Response{
 		JSONRPC: "2.0",
 		ID:      id,
-		Result:  result,
+		Error:   err,
 	}
 	return json.Marshal(resp)
-}
-
-func (h *BaseHandler) buildErrorResponse(id *int, err *Error) ([]byte, error) {
-	resp := Response{
-		JSONRPC: "2.0",
-		ID:      id,
-		Error: &ErrorObject{
-			Code:    err.Code,
-			Message: err.Message,
-			Data:    err.Data,
-		},
-	}
-	return json.Marshal(resp)
-}
-
-func (h *BaseHandler) buildErrorResponseFromError(id *int, err error) ([]byte, error) {
-	if protocolErr, ok := err.(*Error); ok {
-		return h.buildErrorResponse(id, protocolErr)
-	}
-
-	protocolErr := categorizeError(err)
-	return h.buildErrorResponse(id, protocolErr)
-}
-
-func formatToolResult(result interface{}) string {
-	if result == nil {
-		return ""
-	}
-
-	switch v := result.(type) {
-	case string:
-		return v
-	case map[string]interface{}, []interface{}:
-		bytes, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return fmt.Sprintf("%v", result)
-		}
-		return string(bytes)
-	default:
-		return fmt.Sprintf("%v", result)
-	}
 }

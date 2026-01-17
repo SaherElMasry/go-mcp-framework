@@ -1,86 +1,54 @@
 package protocol
 
-import "encoding/json"
-
 // Request represents a JSON-RPC 2.0 request
 type Request struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      *int            `json:"id"`
-	Method  string          `json:"method"`
-	Params  json.RawMessage `json:"params,omitempty"`
+	JSONRPC string                 `json:"jsonrpc"`
+	ID      interface{}            `json:"id"`
+	Method  string                 `json:"method"`
+	Params  map[string]interface{} `json:"params,omitempty"`
 }
 
 // Response represents a JSON-RPC 2.0 response
 type Response struct {
-	JSONRPC string       `json:"jsonrpc"`
-	ID      *int         `json:"id"`
-	Result  interface{}  `json:"result,omitempty"`
-	Error   *ErrorObject `json:"error,omitempty"`
+	JSONRPC string      `json:"jsonrpc"`
+	ID      interface{} `json:"id"`
+	Result  interface{} `json:"result,omitempty"`
+	Error   *Error      `json:"error,omitempty"`
 }
 
-// ErrorObject represents a JSON-RPC 2.0 error
-type ErrorObject struct {
+// Error represents a JSON-RPC 2.0 error
+type Error struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
 }
 
-// InitializeParams represents parameters for initialize method
-type InitializeParams struct {
-	ProtocolVersion string                 `json:"protocolVersion"`
-	Capabilities    map[string]interface{} `json:"capabilities"`
-	ClientInfo      ClientInfo             `json:"clientInfo"`
+// Notification represents a JSON-RPC 2.0 notification (no ID)
+type Notification struct {
+	JSONRPC string                 `json:"jsonrpc"`
+	Method  string                 `json:"method"`
+	Params  map[string]interface{} `json:"params,omitempty"`
 }
 
-// ClientInfo represents client information
-type ClientInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
+// ToolInfo represents tool information for MCP
+type ToolInfo struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"inputSchema"`
 }
 
-// CallToolParams represents parameters for tools/call method
-type CallToolParams struct {
-	Name      string                 `json:"name"`
-	Arguments map[string]interface{} `json:"arguments,omitempty"`
+// ToolCallResult represents the result of a tool call
+type ToolCallResult struct {
+	Content []ContentItem          `json:"content"`
+	IsError bool                   `json:"isError,omitempty"`
+	Meta    map[string]interface{} `json:"_meta,omitempty"`
 }
 
-// ReadResourceParams represents parameters for resources/read method
-type ReadResourceParams struct {
-	URI string `json:"uri"`
-}
-
-// InitializeResult represents the initialize method result
-type InitializeResult struct {
-	ProtocolVersion string                 `json:"protocolVersion"`
-	ServerInfo      ServerInfo             `json:"serverInfo"`
-	Capabilities    map[string]interface{} `json:"capabilities"`
-}
-
-// ServerInfo represents server information
-type ServerInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
-
-// CallToolResult represents the tools/call method result
-type CallToolResult struct {
-	Content []ContentBlock `json:"content"`
-}
-
-// ContentBlock represents a piece of content
-type ContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
-}
-
-// ReadResourceResult represents the resources/read method result
-type ReadResourceResult struct {
-	Contents []ResourceContent `json:"contents"`
-}
-
-// ResourceContent represents resource content
-type ResourceContent struct {
-	URI      string `json:"uri"`
-	MimeType string `json:"mimeType,omitempty"`
-	Text     string `json:"text,omitempty"`
+// ContentItem represents a piece of content in the result
+type ContentItem struct {
+	Type        string                 `json:"type"`
+	Text        string                 `json:"text,omitempty"`
+	Data        interface{}            `json:"data,omitempty"`
+	MimeType    string                 `json:"mimeType,omitempty"`
+	Annotations map[string]interface{} `json:"annotations,omitempty"`
 }

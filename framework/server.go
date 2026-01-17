@@ -6,73 +6,157 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"runtime"
 	"syscall"
-	"time"
 
 	"github.com/SaherElMasry/go-mcp-framework/backend"
+	"github.com/SaherElMasry/go-mcp-framework/engine"
 	"github.com/SaherElMasry/go-mcp-framework/observability"
 	"github.com/SaherElMasry/go-mcp-framework/protocol"
 	"github.com/SaherElMasry/go-mcp-framework/transport"
-	"github.com/SaherElMasry/go-mcp-framework/transport/http"
-	"github.com/SaherElMasry/go-mcp-framework/transport/stdio"
+	httpTransport "github.com/SaherElMasry/go-mcp-framework/transport/http"
+	stdioTransport "github.com/SaherElMasry/go-mcp-framework/transport/stdio"
 )
 
 // Server is the main MCP server
 type Server struct {
-	backend    backend.ServerBackend
 	config     *Config
 	configFile string
+	backend    backend.ServerBackend
+	transport  transport.Transport
+	logger     *slog.Logger
+	executor   *engine.Executor // NEW: Streaming executor
 
-	logger        *slog.Logger
-	metrics       *observability.Metrics
-	healthChecker *observability.HealthChecker
-	handler       protocol.Handler
-	transportImpl transport.Transport
-
-	startTime time.Time
+	// Observability
+	metricsServer *observability.MetricsServer
 }
 
-// NewServer creates a new server with the given options
+// NewServer creates a new MCP server
 func NewServer(opts ...Option) *Server {
-	s := &Server{}
+	s := &Server{
+		config: DefaultConfig(),
+	}
+
+	// Apply options
 	for _, opt := range opts {
 		opt(s)
 	}
+
 	return s
 }
 
-// Run starts the server and blocks until shutdown
-func (s *Server) Run(ctx context.Context) error {
-	s.startTime = time.Now()
-
-	if err := s.loadConfig(); err != nil {
-		return fmt.Errorf("config load failed: %w", err)
+// Initialize initializes the server
+func (s *Server) Initialize(ctx context.Context) error {
+	// Load config file if specified
+	if s.configFile != "" {
+		config, err := LoadConfig(s.configFile)
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		s.config = config
 	}
 
-	if err := s.setupObservability(); err != nil {
-		return fmt.Errorf("observability setup failed: %w", err)
+	// Validate configuration
+	if err := s.config.Validate(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	s.logger.Info("Starting MCP Server",
+	// Setup logging
+	s.logger = observability.SetupLogging(s.config.Logging)
+
+	s.logger.Info("initializing server",
 		"backend", s.config.Backend.Type,
 		"transport", s.config.Transport.Type)
 
-	if err := s.initializeBackend(ctx); err != nil {
-		return fmt.Errorf("backend init failed: %w", err)
-	}
-	defer s.backend.Close()
-
-	if err := s.setupHandler(); err != nil {
-		return fmt.Errorf("handler setup failed: %w", err)
-	}
-
-	if err := s.setupTransport(); err != nil {
-		return fmt.Errorf("transport setup failed: %w", err)
+	// Initialize backend if not provided
+	if s.backend == nil {
+		var err error
+		s.backend, err = backend.Create(s.config.Backend.Type)
+		if err != nil {
+			return fmt.Errorf("failed to create backend: %w", err)
+		}
 	}
 
-	s.setupHealthChecks()
+	// Initialize backend
+	if err := s.backend.Initialize(ctx, s.config.Backend.Config); err != nil {
+		return fmt.Errorf("failed to initialize backend: %w", err)
+	}
 
+	// NEW: Initialize streaming executor
+	if s.config.Streaming.Enabled {
+		executorConfig := engine.ExecutorConfig{
+			BufferSize:    s.config.Streaming.BufferSize,
+			Timeout:       s.config.Streaming.Timeout,
+			MaxEvents:     s.config.Streaming.MaxEvents,
+			MaxConcurrent: s.config.Streaming.MaxConcurrent, // v2 semaphore
+		}
+		s.executor = engine.NewExecutor(executorConfig, s.logger)
+
+		s.logger.Info("streaming enabled",
+			"buffer_size", executorConfig.BufferSize,
+			"timeout", executorConfig.Timeout,
+			"max_concurrent", executorConfig.MaxConcurrent)
+	}
+
+	// Setup observability
+	if s.config.Observability.Enabled {
+		s.metricsServer = observability.NewMetricsServer(
+			s.config.Observability.MetricsAddress,
+			s.logger,
+		)
+
+		go func() {
+			if err := s.metricsServer.Start(); err != nil {
+				s.logger.Error("metrics server failed", "error", err)
+			}
+		}()
+	}
+
+	// Create protocol handler
+	var handler transport.Handler
+	if s.config.Observability.Enabled {
+		handler = protocol.NewInstrumentedHandler(s.backend, s.logger)
+	} else {
+		handler = protocol.NewHandler(s.backend, s.logger)
+	}
+
+	// Setup transport
+	switch s.config.Transport.Type {
+	case "http":
+		httpConfig := httpTransport.HTTPConfig{
+			Address:        s.config.Transport.HTTP.Address,
+			ReadTimeout:    s.config.Transport.HTTP.ReadTimeout,
+			WriteTimeout:   s.config.Transport.HTTP.WriteTimeout,
+			MaxRequestSize: s.config.Transport.HTTP.MaxRequestSize,
+			AllowedOrigins: s.config.Transport.HTTP.AllowedOrigins,
+		}
+
+		// NEW: Pass executor for streaming support
+		s.transport = httpTransport.NewHTTPTransport(
+			handler,
+			httpConfig,
+			s.logger,
+			s.backend,  // NEW: For SSE streaming
+			s.executor, // NEW: For streaming execution
+		)
+
+	case "stdio":
+		s.transport = stdioTransport.NewStdioTransport(handler, s.logger)
+
+	default:
+		return fmt.Errorf("unknown transport type: %s", s.config.Transport.Type)
+	}
+
+	return nil
+}
+
+// Run starts the server
+func (s *Server) Run(ctx context.Context) error {
+	// Initialize
+	if err := s.Initialize(ctx); err != nil {
+		return err
+	}
+
+	// Setup graceful shutdown
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -80,146 +164,77 @@ func (s *Server) Run(ctx context.Context) error {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		sig := <-sigChan
-		s.logger.Info("Received shutdown signal", "signal", sig)
+		<-sigChan
+		s.logger.Info("shutdown signal received")
 		cancel()
 	}()
 
-	s.logger.Info("Server ready")
+	// Run transport
+	s.logger.Info("server starting",
+		"transport", s.config.Transport.Type,
+		"address", s.getAddress())
 
-	if err := s.transportImpl.Run(ctx); err != nil {
-		if err == context.Canceled {
-			s.logger.Info("Server shutdown complete")
-			return nil
-		}
+	if err := s.transport.Run(ctx); err != nil {
 		return fmt.Errorf("transport error: %w", err)
 	}
 
-	return nil
-}
+	// Cleanup
+	s.logger.Info("server shutting down")
 
-func (s *Server) loadConfig() error {
-	if s.config != nil {
-		return nil
+	if err := s.backend.Close(); err != nil {
+		s.logger.Error("backend close error", "error", err)
 	}
-	config, err := LoadConfig(s.configFile)
-	if err != nil {
-		return err
-	}
-	s.config = config
-	return nil
-}
 
-func (s *Server) setupObservability() error {
-	// s.logger = observability.NewLogger(observability.LoggingConfig{
-	// 	Level:     observability.LogLevel(s.config.Logging.Level),
-	// 	Format:    s.config.Logging.Format,
-	// 	AddSource: s.config.Logging.AddSource,
-	// })
-	s.logger = observability.NewLogger(observability.LoggingConfig{
-		Level:     s.config.Logging.Level, // ✅ Direct string
-		Format:    s.config.Logging.Format,
-		AddSource: s.config.Logging.AddSource,
-	})
-	slog.SetDefault(s.logger)
-
-	if s.config.Observability.Enabled {
-		s.metrics = observability.NewMetrics("mcp", "server")
-
-		metricsServer := observability.NewMetricsServer(
-			observability.MetricsConfig{
-				Enabled: true,
-				Address: s.config.Observability.MetricsAddress,
-				Path:    "/metrics",
-			},
-			s.metrics,
-			s.logger,
-		)
-
-		go func() {
-			s.logger.Info("Starting metrics server",
-				"address", s.config.Observability.MetricsAddress)
-			if err := metricsServer.Run(context.Background()); err != nil {
-				s.logger.Error("Metrics server error", "error", err)
-			}
-		}()
-
-		go func() {
-			ticker := time.NewTicker(10 * time.Second)
-			defer ticker.Stop()
-			for range ticker.C {
-				s.metrics.UpdateUptime(s.startTime)
-				var m runtime.MemStats
-				runtime.ReadMemStats(&m)
-				s.metrics.UpdateMemoryUsage(m.Alloc)
-				s.metrics.UpdateGoroutineCount(runtime.NumGoroutine())
-			}
-		}()
+	if s.metricsServer != nil {
+		s.metricsServer.Stop()
 	}
 
 	return nil
 }
 
-func (s *Server) initializeBackend(ctx context.Context) error {
-	if s.backend == nil {
-		b, err := backend.New(s.config.Backend.Type)
-		if err != nil {
-			return fmt.Errorf("backend creation failed: %w", err)
-		}
-		s.backend = b
-	}
-
-	if err := s.backend.Initialize(ctx, s.config.Backend.Config); err != nil {
-		return fmt.Errorf("backend initialization failed: %w", err)
-	}
-
-	s.logger.Info("Backend initialized", "name", s.backend.Name())
-	return nil
-}
-
-func (s *Server) setupHandler() error {
-	if s.config.Observability.Enabled && s.metrics != nil {
-		s.handler = protocol.NewInstrumentedHandler(s.backend, s.metrics, s.logger)
-	} else {
-		s.handler = protocol.NewHandler(s.backend, s.logger)
-	}
-	return nil
-}
-
-// func (s *Server) setupTransport() error {
-// 	switch s.config.Transport.Type {
-// 	case "stdio":
-// 		s.transportImpl = stdio.NewStdioTransport(s.handler, s.logger)
-// 	case "http":
-// 		s.transportImpl = http.NewHTTPTransport(s.handler, s.config.Transport.HTTP, s.logger)
-// 	default:
-// 		return fmt.Errorf("unknown transport: %s", s.config.Transport.Type)
-// 	}
-// 	return nil
-// }
-
-func (s *Server) setupTransport() error {
+// getAddress returns the server address for logging
+func (s *Server) getAddress() string {
 	switch s.config.Transport.Type {
-	case "stdio":
-		s.transportImpl = stdio.NewStdioTransport(s.handler, s.logger)
 	case "http":
-		// Convert framework config to transport config
-		httpConfig := http.HTTPConfig{
-			Address:        s.config.Transport.HTTP.Address,
-			ReadTimeout:    s.config.Transport.HTTP.ReadTimeout,
-			WriteTimeout:   s.config.Transport.HTTP.WriteTimeout,
-			MaxRequestSize: s.config.Transport.HTTP.MaxRequestSize,
-			AllowedOrigins: s.config.Transport.HTTP.AllowedOrigins,
-		}
-		s.transportImpl = http.NewHTTPTransport(s.handler, httpConfig, s.logger)
+		return s.config.Transport.HTTP.Address
+	case "stdio":
+		return "stdio"
 	default:
-		return fmt.Errorf("unknown transport: %s", s.config.Transport.Type)
+		return "unknown"
 	}
-	return nil
 }
 
-func (s *Server) setupHealthChecks() {
-	s.healthChecker = observability.NewHealthChecker()
-	s.healthChecker.Register("backend", observability.BackendHealthCheck(s.backend))
-	s.healthChecker.Register("uptime", observability.UptimeHealthCheck(s.startTime))
+// NEW: v2-style simple registration
+
+// RegisterFunction registers a single streaming function as a tool (v2 style)
+// This is a simplified API for quick prototyping and simple use cases
+func (s *Server) RegisterFunction(name string, handler backend.StreamingHandler) {
+	functionBackend := backend.NewFunctionBackend(name, handler)
+	s.backend = functionBackend
+
+	s.logger.Info("registered function tool",
+		"name", name,
+		"style", "v2-simple")
+}
+
+// RegisterBackend registers a full backend (v0.2.0 style)
+// This is the complete API for production use cases with multiple tools
+func (s *Server) RegisterBackend(b backend.ServerBackend) {
+	s.backend = b
+
+	tools := b.ListTools()
+	s.logger.Info("registered backend",
+		"name", b.Name(),
+		"tools", len(tools),
+		"style", "v0.2.0-full")
+}
+
+// GetBackend returns the current backend
+func (s *Server) GetBackend() backend.ServerBackend {
+	return s.backend
+}
+
+// GetExecutor returns the streaming executor
+func (s *Server) GetExecutor() *engine.Executor {
+	return s.executor
 }

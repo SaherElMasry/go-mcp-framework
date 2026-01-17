@@ -2,12 +2,14 @@ package http
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/SaherElMasry/go-mcp-framework/backend"
+	"github.com/SaherElMasry/go-mcp-framework/engine"
 	"github.com/SaherElMasry/go-mcp-framework/transport"
 )
 
@@ -20,136 +22,138 @@ type HTTPConfig struct {
 	AllowedOrigins []string
 }
 
-// HTTPTransport implements MCP over HTTP
+// HTTPTransport implements HTTP-based transport
 type HTTPTransport struct {
-	handler transport.Handler
-	logger  *slog.Logger
-	server  *http.Server
-	config  HTTPConfig
+	handler  transport.Handler
+	config   HTTPConfig
+	logger   *slog.Logger
+	server   *http.Server
+	backend  backend.ServerBackend // NEW: For SSE streaming
+	executor *engine.Executor      // NEW: For streaming execution
 }
 
 // NewHTTPTransport creates a new HTTP transport
-func NewHTTPTransport(handler transport.Handler, config HTTPConfig, logger *slog.Logger) *HTTPTransport {
+func NewHTTPTransport(
+	handler transport.Handler,
+	config HTTPConfig,
+	logger *slog.Logger,
+	backend backend.ServerBackend, // NEW
+	executor *engine.Executor, // NEW
+) *HTTPTransport {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
-	if config.Address == "" {
-		config.Address = ":8080"
+	return &HTTPTransport{
+		handler:  handler,
+		config:   config,
+		logger:   logger,
+		backend:  backend,
+		executor: executor,
 	}
-	if config.ReadTimeout == 0 {
-		config.ReadTimeout = 30 * time.Second
-	}
-	if config.WriteTimeout == 0 {
-		config.WriteTimeout = 30 * time.Second
-	}
-	if config.MaxRequestSize == 0 {
-		config.MaxRequestSize = 10 * 1024 * 1024
-	}
-
-	t := &HTTPTransport{
-		handler: handler,
-		logger:  logger,
-		config:  config,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc", t.withMiddleware(t.handleRPC))
-	mux.HandleFunc("/health", t.handleHealth)
-
-	t.server = &http.Server{
-		Addr:         config.Address,
-		Handler:      mux,
-		ReadTimeout:  config.ReadTimeout,
-		WriteTimeout: config.WriteTimeout,
-	}
-
-	return t
 }
 
 // Run starts the HTTP server
 func (t *HTTPTransport) Run(ctx context.Context) error {
-	t.logger.Info("http transport started", "address", t.server.Addr)
+	mux := http.NewServeMux()
 
-	errChan := make(chan error, 1)
+	// Regular JSON-RPC endpoint
+	mux.HandleFunc("/rpc", t.handleRPC)
+
+	// NEW: SSE streaming endpoint
+	if t.executor != nil {
+		sseHandler := NewSSEHandler(t.executor, t.backend, t.logger, 5*time.Minute)
+		mux.Handle("/stream", sseHandler)
+		t.logger.Info("SSE streaming endpoint enabled", "path", "/stream")
+	}
+
+	// Health check endpoint
+	mux.HandleFunc("/health", t.handleHealth)
+
+	t.server = &http.Server{
+		Addr:         t.config.Address,
+		Handler:      t.applyCORS(mux),
+		ReadTimeout:  t.config.ReadTimeout,
+		WriteTimeout: t.config.WriteTimeout,
+	}
+
+	// Graceful shutdown
 	go func() {
-		if err := t.server.ListenAndServe(); err != http.ErrServerClosed {
-			errChan <- err
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := t.server.Shutdown(shutdownCtx); err != nil {
+			t.logger.Error("shutdown error", "error", err)
 		}
 	}()
 
-	select {
-	case <-ctx.Done():
-		t.logger.Info("http transport shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return t.server.Shutdown(shutdownCtx)
-	case err := <-errChan:
-		return err
+	t.logger.Info("http transport started", "address", t.config.Address)
+
+	if err := t.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("http server error: %w", err)
 	}
+
+	return nil
 }
 
+// handleRPC handles regular JSON-RPC requests
 func (t *HTTPTransport) handleRPC(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	// Read request body
+	body, err := io.ReadAll(io.LimitReader(r.Body, t.config.MaxRequestSize))
 	if err != nil {
-		t.logger.Error("failed to read body", "error", err)
-		http.Error(w, "Bad request", http.StatusBadRequest)
+		t.logger.Error("read error", "error", err)
+		http.Error(w, "Failed to read request", http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
-	t.logger.Debug("received HTTP request", "size", len(body))
-
-	response, err := t.handler.Handle(r.Context(), body, "http")
+	// Handle request
+	resp, err := t.handler.Handle(r.Context(), body, "http")
 	if err != nil {
 		t.logger.Error("handler error", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
+	// Write response
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(response)
+	if _, err := w.Write(resp); err != nil {
+		t.logger.Error("write error", "error", err)
+	}
 }
 
+// handleHealth handles health check requests
 func (t *HTTPTransport) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	w.Write([]byte(`{"status":"ok"}`))
 }
 
-func (t *HTTPTransport) withMiddleware(handler http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if len(t.config.AllowedOrigins) > 0 {
-			origin := r.Header.Get("Origin")
-			for _, allowed := range t.config.AllowedOrigins {
-				if origin == allowed || allowed == "*" {
-					w.Header().Set("Access-Control-Allow-Origin", origin)
-					w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-					w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-					break
-				}
-			}
-
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
+// applyCORS applies CORS headers
+func (t *HTTPTransport) applyCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Handle preflight requests
+		if r.Method == http.MethodOptions {
+			t.setCORSHeaders(w)
+			w.WriteHeader(http.StatusOK)
+			return
 		}
 
-		r.Body = http.MaxBytesReader(w, r.Body, t.config.MaxRequestSize)
+		t.setCORSHeaders(w)
+		next.ServeHTTP(w, r)
+	})
+}
 
-		start := time.Now()
-		handler(w, r)
-
-		t.logger.Info("http request completed",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"duration", time.Since(start))
+// setCORSHeaders sets CORS headers
+func (t *HTTPTransport) setCORSHeaders(w http.ResponseWriter) {
+	if len(t.config.AllowedOrigins) > 0 {
+		w.Header().Set("Access-Control-Allow-Origin", t.config.AllowedOrigins[0])
 	}
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 }

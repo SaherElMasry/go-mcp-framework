@@ -2,93 +2,50 @@ package protocol
 
 import "fmt"
 
+// Standard JSON-RPC 2.0 error codes
 const (
-	ErrCodeParseError       = -32700
-	ErrCodeInvalidRequest   = -32600
-	ErrCodeMethodNotFound   = -32601
-	ErrCodeInvalidParams    = -32602
-	ErrCodeInternalError    = -32603
-	ErrCodeServerError      = -32000
-	ErrCodeToolNotFound     = -32001
-	ErrCodeToolFailed       = -32002
-	ErrCodeResourceNotFound = -32003
-	ErrCodeSecurityError    = -32004
-	ErrCodeValidationError  = -32005
+	ParseError     = -32700
+	InvalidRequest = -32600
+	MethodNotFound = -32601
+	InvalidParams  = -32602
+	InternalError  = -32603
 )
 
-// Error represents an MCP protocol error
-type Error struct {
-	Code    int
-	Message string
-	Data    interface{}
+// NewError creates a new protocol error
+func NewError(code int, message string, data interface{}) *Error {
+	return &Error{
+		Code:    code,
+		Message: message,
+		Data:    data,
+	}
+}
+
+// NewParseError creates a parse error
+func NewParseError(err error) *Error {
+	return NewError(ParseError, "Parse error", err.Error())
+}
+
+// NewInvalidRequest creates an invalid request error
+func NewInvalidRequest(message string) *Error {
+	return NewError(InvalidRequest, "Invalid request", message)
+}
+
+// NewMethodNotFound creates a method not found error
+func NewMethodNotFound(method string) *Error {
+	return NewError(MethodNotFound, "Method not found", method)
+}
+
+// NewInvalidParams creates an invalid params error
+func NewInvalidParams(message string) *Error {
+	return NewError(InvalidParams, "Invalid params", message)
+}
+
+// NewInternalError creates an internal error
+func NewInternalError(err error) *Error {
+	return NewError(InternalError, "Internal error", err.Error())
 }
 
 // Error implements the error interface
 func (e *Error) Error() string {
-	if e.Data != nil {
-		return fmt.Sprintf("MCP error %d: %s (data: %v)", e.Code, e.Message, e.Data)
-	}
-	return fmt.Sprintf("MCP error %d: %s", e.Code, e.Message)
-}
-
-// NewError creates a new Error
-func NewError(code int, message string) *Error {
-	return &Error{Code: code, Message: message}
-}
-
-// ParseError creates a parse error
-func ParseError(message string) *Error {
-	return NewError(ErrCodeParseError, message)
-}
-
-// InvalidRequest creates an invalid request error
-func InvalidRequest(message string) *Error {
-	return NewError(ErrCodeInvalidRequest, message)
-}
-
-// MethodNotFound creates a method not found error
-func MethodNotFound(method string) *Error {
-	return NewError(ErrCodeMethodNotFound, fmt.Sprintf("method not found: %s", method))
-}
-
-// InvalidParams creates an invalid params error
-func InvalidParams(message string) *Error {
-	return NewError(ErrCodeInvalidParams, message)
-}
-
-// InternalError creates an internal error
-func InternalError(message string) *Error {
-	return NewError(ErrCodeInternalError, message)
-}
-
-func categorizeError(err error) *Error {
-	if err == nil {
-		return nil
-	}
-
-	if protocolErr, ok := err.(*Error); ok {
-		return protocolErr
-	}
-
-	errStr := err.Error()
-
-	switch {
-	case contains(errStr, "not found"):
-		return NewError(ErrCodeToolNotFound, errStr)
-	case contains(errStr, "security"), contains(errStr, "path traversal"):
-		return NewError(ErrCodeSecurityError, errStr)
-	case contains(errStr, "invalid"), contains(errStr, "validation"):
-		return NewError(ErrCodeValidationError, errStr)
-	default:
-		return NewError(ErrCodeServerError, errStr)
-	}
-}
-
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return fmt.Sprintf("JSON-RPC error %d: %s", e.Code, e.Message)
 }

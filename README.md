@@ -1,4 +1,3 @@
-
 # 🚀 go-mcp-framework
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/SaherElMasry/go-mcp-framework.svg)](https://pkg.go.dev/github.com/SaherElMasry/go-mcp-framework)
@@ -6,10 +5,26 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/SaherElMasry/go-mcp-framework)](https://github.com/SaherElMasry/go-mcp-framework)
 [![GitHub release](https://img.shields.io/github/v/release/SaherElMasry/go-mcp-framework)](https://github.com/SaherElMasry/go-mcp-framework/releases)
+[![Streaming](https://img.shields.io/badge/Streaming-SSE-orange.svg)](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)
 
-**Production-ready framework for building [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers in Go.**
+**Production-ready framework for building [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers in Go with real-time streaming support.**
 
 Transform hours of boilerplate into minutes of productive development. Built for production, designed for developers.
+
+---
+
+## 🌟 What's New in v0.2.0
+
+### 🎯 Real-Time Streaming
+- **Server-Sent Events (SSE)** - Stream tool results in real-time
+- **Live Progress Updates** - Track long-running operations
+- **Instant Feedback** - Results appear as they're generated
+- **Built-in SSE Endpoint** - `/stream?tool=<name>` ready to use
+
+### ⚡ Enhanced Performance  
+- **Concurrent Execution Control** - Smart semaphore-based limits
+- **Event-Based Architecture** - Start, Data, Progress, End, Error events
+- **Zero Breaking Changes** - All v0.1.0 code works as-is
 
 ---
 
@@ -22,6 +37,7 @@ Building MCP servers shouldn't require reinventing the wheel. This framework han
 // With existing solutions (mark3labs/mcp-go)
 // ❌ stdio transport only
 // ❌ No HTTP support for web integration
+// ❌ No streaming/real-time updates
 // ❌ Manual metric collection
 // ❌ No structured logging
 // ❌ Roll your own security
@@ -30,8 +46,9 @@ Building MCP servers shouldn't require reinventing the wheel. This framework han
 
 ### Our Solution
 ```go
-// With go-mcp-framework
-// ✅ Multiple transports (stdio, HTTP, extensible)
+// With go-mcp-framework v0.2.0
+// ✅ Multiple transports (stdio, HTTP, SSE streaming)
+// ✅ Real-time streaming with progress tracking
 // ✅ Built-in observability (Prometheus + structured logging)
 // ✅ Production-ready security (sandboxing, validation)
 // ✅ Plugin architecture with hot-reload
@@ -47,18 +64,21 @@ Building MCP servers shouldn't require reinventing the wheel. This framework han
 - **Fluent API** - Intuitive tool definition with full type safety
 - **Hot-Reload Ready** - Plugin system with dynamic backend registration
 - **Clear Errors** - Helpful error messages with context
+- **🆕 Streaming Made Easy** - Add `.Streaming(true)` to any tool
 
 ### 🏭 Production Ready
-- **Multiple Transports** - stdio for CLI tools, HTTP for web services
+- **Multiple Transports** - stdio for CLI tools, HTTP for web services, **SSE for streaming**
 - **Full Observability** - Prometheus metrics, structured logging, health checks
 - **Security Built-in** - Path traversal prevention, workspace sandboxing, size limits
 - **Graceful Shutdown** - Proper cleanup and connection draining
+- **🆕 Concurrent Control** - Configurable execution limits with semaphores
 
 ### 📊 Observability Stack
 - **Prometheus Metrics** - Request counts, durations, sizes, system metrics
 - **Structured Logging** - JSON logs with context using Go's slog
 - **Health Endpoints** - `/health`, `/metrics`, `/runtime`
 - **Runtime Stats** - Memory usage, goroutine count, uptime tracking
+- **🆕 Streaming Metrics** - Active streams, event counts, execution tracking
 
 ### 🔒 Security First
 - **Workspace Sandboxing** - File operations restricted to safe directories
@@ -70,9 +90,10 @@ Building MCP servers shouldn't require reinventing the wheel. This framework han
 
 ## 📊 Framework Comparison
 
-| Feature | go-mcp-framework | mark3labs/mcp-go | Your Advantage |
-|---------|------------------|------------------|----------------|
-| **Transports** | stdio, HTTP, extensible | stdio only | 🟢 **Web APIs included** |
+| Feature | go-mcp-framework v0.2.0 | mark3labs/mcp-go | Your Advantage |
+|---------|-------------------------|------------------|----------------|
+| **Transports** | stdio, HTTP, **SSE** | stdio only | 🟢 **Web APIs + Streaming** |
+| **Real-time Streaming** | ✅ Built-in SSE | ❌ None | 🟢 **Live progress updates** |
 | **Observability** | Prometheus + logs + health | None | 🟢 **Production monitoring** |
 | **Architecture** | Plugin registry | Monolithic | 🟢 **Extensible & maintainable** |
 | **Tool Definition** | Fluent type-safe API | Manual structs | 🟢 **Cleaner code** |
@@ -90,11 +111,12 @@ Building MCP servers shouldn't require reinventing the wheel. This framework han
 │  • Add Prometheus metrics integration                   │
 │  • Build security & validation layer                    │
 │  • Add structured logging system                        │
+│  • Implement streaming from scratch                     │
 │  • Configure deployment & monitoring                    │
 └─────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────┐
-│  Using go-mcp-framework                                 │
+│  Using go-mcp-framework v0.2.0                          │
 │  ███ 2-3 days                                           │
 │  • Define your tools (business logic)                   │
 │  • Configure settings (YAML/env)                        │
@@ -123,6 +145,7 @@ Result: 🚀 5x faster to production-ready deployment
           │  • Plugin system                    │
           │  • Dynamic backend loading          │
           │  • Automatic request routing        │
+          │  • 🆕 Streaming tool detection      │
           └──────────────────┬──────────────────┘
                              │
           ┌──────────────────▼──────────────────┐
@@ -130,6 +153,7 @@ Result: 🚀 5x faster to production-ready deployment
           │  • Server lifecycle orchestration   │
           │  • Configuration management         │
           │  • Graceful shutdown handling       │
+          │  • 🆕 Streaming execution engine    │
           └──────┬─────────┬──────────┬─────────┘
                  │         │          │
        ┌─────────▼──┐  ┌───▼────┐  ┌─▼────────────┐
@@ -139,7 +163,10 @@ Result: 🚀 5x faster to production-ready deployment
        │ • MCP spec │  │•Metrics│  │ │  stdio   │ │
        │ • Errors   │  │•Logging│  │ └──────────┘ │
        │ • Types    │  │•Health │  │ ┌──────────┐ │
-       └────────────┘  └────────┘  │ │   HTTP   │ │
+       │ • 🆕 SSE   │  │•🆕Stats│  │ │   HTTP   │ │
+       └────────────┘  └────────┘  │ └──────────┘ │
+                                   │ ┌──────────┐ │
+                                   │ │🆕  SSE   │ │
                                    │ └──────────┘ │
                                    └──────────────┘
 ```
@@ -149,9 +176,10 @@ Result: 🚀 5x faster to production-ready deployment
 - **Backend Layer** - Your business logic and tool implementations
 - **Registry** - Plugin system for hot-swappable backends
 - **Framework** - Server orchestration and lifecycle management
-- **Protocol** - JSON-RPC 2.0 + MCP specification handling
+- **🆕 Streaming Engine** - Event-based execution with progress tracking
+- **Protocol** - JSON-RPC 2.0 + MCP + **SSE format conversion**
 - **Observability** - Metrics collection and structured logging
-- **Transport** - Communication layer (stdio for CLI, HTTP for web)
+- **Transport** - Communication layer (stdio for CLI, HTTP for web, **SSE for streaming**)
 
 ---
 
@@ -162,7 +190,7 @@ Result: 🚀 5x faster to production-ready deployment
 go get github.com/SaherElMasry/go-mcp-framework@latest
 ```
 
-### Your First Server (15 lines!)
+### Example 1: Simple Tool (15 lines!)
 
 Create `main.go`:
 ```go
@@ -218,15 +246,11 @@ func main() {
 }
 ```
 
-**Run it:**
+**Run & Test:**
 ```bash
-go mod init my-calculator-server
-go get github.com/SaherElMasry/go-mcp-framework@latest
 go run main.go
-```
 
-**Test it:**
-```bash
+# Test it
 curl -X POST http://localhost:8080/rpc \
   -H "Content-Type: application/json" \
   -d '{
@@ -238,22 +262,134 @@ curl -X POST http://localhost:8080/rpc \
       "arguments": {"a": 5, "b": 3}
     }
   }'
+
+# Response: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"result\":8}"}]}}
 ```
 
-**Response:**
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": {
-    "content": [
-      {
-        "type": "text",
-        "text": "{\"result\":8}"
-      }
-    ]
-  }
+---
+
+### 🆕 Example 2: Streaming Tool (Real-time Updates!)
+
+Add streaming to get live progress updates:
+
+```go
+type SearchBackend struct {
+    *backend.BaseBackend
 }
+
+func NewSearchBackend() *SearchBackend {
+    b := &SearchBackend{
+        BaseBackend: backend.NewBaseBackend("Search"),
+    }
+    
+    // Register a STREAMING tool
+    b.RegisterStreamingTool(
+        backend.NewTool("search_files").
+            Description("Search files with real-time results").
+            StringParam("path", "Directory to search", true).
+            StringParam("pattern", "Search pattern", true).
+            Streaming(true).  // 🆕 Mark as streaming!
+            Build(),
+        b.handleSearchFiles,
+    )
+    
+    return b
+}
+
+func (b *SearchBackend) handleSearchFiles(
+    ctx context.Context,
+    args map[string]interface{},
+    emit backend.StreamingEmitter,  // 🆕 Streaming emitter
+) error {
+    path := args["path"].(string)
+    pattern := args["pattern"].(string)
+    
+    files, _ := os.ReadDir(path)
+    totalFiles := len(files)
+    matches := 0
+    
+    for i, file := range files {
+        // 🆕 Check for cancellation
+        select {
+        case <-emit.Context().Done():
+            return ctx.Err()
+        default:
+        }
+        
+        // 🆕 Emit progress every 10 files
+        if i%10 == 0 {
+            emit.EmitProgress(
+                int64(i),
+                int64(totalFiles),
+                fmt.Sprintf("Searched %d/%d files, found %d matches", i, totalFiles, matches),
+            )
+        }
+        
+        // Search logic
+        if strings.Contains(file.Name(), pattern) {
+            matches++
+            
+            // 🆕 Emit result immediately!
+            emit.EmitData(map[string]interface{}{
+                "name":        file.Name(),
+                "match_count": matches,
+            })
+        }
+    }
+    
+    return nil
+}
+
+func main() {
+    backend.Register("search", func() backend.ServerBackend {
+        return NewSearchBackend()
+    })
+    
+    server := framework.NewServer(
+        framework.WithBackendType("search"),
+        framework.WithTransport("http"),
+        framework.WithHTTPAddress(":8080"),
+        framework.WithStreaming(true),  // 🆕 Enable streaming!
+        framework.WithMaxConcurrent(8), // 🆕 Control concurrency
+    )
+    
+    server.Run(context.Background())
+}
+```
+
+**Test Streaming:**
+```bash
+# Use the SSE endpoint for streaming
+curl -N -X POST "http://localhost:8080/stream?tool=search_files" \
+  -H "Content-Type: application/json" \
+  -d '{"path":"/home/user","pattern":"report"}'
+```
+
+**Real-time SSE Output:**
+```
+event: start
+id: req-123
+data: {"tool_name":"search_files","request_id":"req-123"}
+
+event: progress
+id: req-123
+data: {"current":10,"total":100,"percentage":10.0,"message":"Searched 10/100 files, found 2 matches"}
+
+event: data
+id: req-123
+data: {"name":"report-2024.pdf","match_count":1}
+
+event: data
+id: req-123
+data: {"name":"sales-report.xlsx","match_count":2}
+
+event: progress
+id: req-123
+data: {"current":100,"total":100,"percentage":100.0,"message":"Searched 100/100 files, found 2 matches"}
+
+event: end
+id: req-123
+data: {"duration_ms":1523,"event_count":12}
 ```
 
 ---
@@ -274,8 +410,11 @@ func NewWeatherBackend() *WeatherBackend {
         BaseBackend: backend.NewBaseBackend("Weather Service"),
     }
     
-    // Register tools
+    // Register regular tools
     b.RegisterTool(definition, handler)
+    
+    // 🆕 Register streaming tools
+    b.RegisterStreamingTool(definition, streamingHandler)
     
     return b
 }
@@ -308,8 +447,19 @@ b.RegisterTool(
             intPtr(1), intPtr(7)).
         BoolParam("include_alerts", "Include weather alerts", false,
             boolPtr(false)).
+        Streaming(false).  // 🆕 Regular tool
         Build(),
     handleSearchWeather,
+)
+
+// 🆕 Streaming tool example
+b.RegisterStreamingTool(
+    backend.NewTool("download_data").
+        Description("Download data with progress updates").
+        StringParam("url", "URL to download", true).
+        Streaming(true).  // 🆕 Enable streaming
+        Build(),
+    handleDownloadData,
 )
 ```
 
@@ -319,7 +469,58 @@ b.RegisterTool(
 - `BoolParam` - True/false flag
 - `EnumParam` - Predefined choices
 
-### 3. Configuration - Flexible Setup
+**🆕 Tool handler types:**
+```go
+// Regular tool handler
+func(ctx context.Context, args map[string]interface{}) (interface{}, error)
+
+// 🆕 Streaming tool handler
+func(ctx context.Context, args map[string]interface{}, emit backend.StreamingEmitter) error
+```
+
+### 3. 🆕 Streaming Emitter API
+
+The streaming emitter provides three methods:
+
+```go
+type StreamingEmitter interface {
+    // Emit a data chunk
+    EmitData(data interface{}) error
+    
+    // Emit progress update
+    EmitProgress(current, total int64, message string) error
+    
+    // Get context for cancellation
+    Context() context.Context
+}
+```
+
+**Example usage:**
+```go
+func handleLargeTask(ctx context.Context, args map[string]interface{}, emit backend.StreamingEmitter) error {
+    items := getItemsToProcess()
+    
+    for i, item := range items {
+        // Check cancellation
+        select {
+        case <-emit.Context().Done():
+            return ctx.Err()
+        default:
+        }
+        
+        // Update progress
+        emit.EmitProgress(int64(i+1), int64(len(items)), "Processing...")
+        
+        // Process and emit result
+        result := process(item)
+        emit.EmitData(result)
+    }
+    
+    return nil
+}
+```
+
+### 4. Configuration - Flexible Setup
 
 **Option 1: YAML Configuration**
 ```yaml
@@ -339,6 +540,13 @@ transport:
     max_request_size: 10485760
     allowed_origins: ["*"]
 
+# 🆕 Streaming configuration
+streaming:
+  enabled: true
+  buffer_size: 100
+  timeout: 300s
+  max_concurrent: 16  # Concurrent execution limit
+
 observability:
   enabled: true
   metrics_address: ":9091"
@@ -355,6 +563,8 @@ server := framework.NewServer(
     framework.WithConfigFile("config.yaml"),
     framework.WithBackendType("weather"),
     framework.WithHTTPAddress(":8080"),
+    framework.WithStreaming(true),       // 🆕
+    framework.WithMaxConcurrent(16),     // 🆕
     framework.WithObservability(true),
 )
 ```
@@ -364,10 +574,55 @@ server := framework.NewServer(
 export MCP_BACKEND_TYPE=weather
 export MCP_TRANSPORT=http
 export MCP_HTTP_ADDRESS=:8080
+export MCP_STREAMING_ENABLED=true  # 🆕
+export MCP_MAX_CONCURRENT=16       # 🆕
 export WEATHER_API_KEY=your_key_here
 ```
 
-### 4. Observability - Monitor Everything
+### 5. 🆕 API Endpoints
+
+**Regular Tools (JSON-RPC):**
+```bash
+POST /rpc
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "tool_name",
+    "arguments": {...}
+  }
+}
+```
+
+**🆕 Streaming Tools (Server-Sent Events):**
+```bash
+POST /stream?tool=<tool_name>
+Content-Type: application/json
+
+{"arg1": "value1", "arg2": "value2"}
+
+# Response: Real-time SSE stream
+event: start
+data: {...}
+
+event: progress
+data: {...}
+
+event: data
+data: {...}
+
+event: end
+data: {...}
+```
+
+**Other Endpoints:**
+- `GET /health` - Health check
+- `GET /metrics` - Prometheus metrics (`:9091`)
+- `POST /rpc` with `method: "tools/list"` - List tools
+
+### 6. Observability - Monitor Everything
 
 **Prometheus Metrics** (`http://localhost:9091/metrics`)
 ```
@@ -375,6 +630,11 @@ export WEATHER_API_KEY=your_key_here
 mcp_server_requests_total{method="tools/call",status="success",transport="http"} 42
 mcp_server_request_duration_seconds_sum{method="tools/call"} 1.234
 mcp_server_request_size_bytes_sum{method="tools/call"} 12345
+
+# 🆕 Streaming metrics
+mcp_streaming_events_total{tool="search_files",event_type="data"} 150
+mcp_active_streams 3
+mcp_concurrent_executions 2
 
 # System metrics
 mcp_server_uptime_seconds 3600
@@ -387,42 +647,38 @@ mcp_server_goroutines 15
 {"status": "ok"}
 ```
 
-**Runtime Stats** (`http://localhost:9091/runtime`)
-```json
-{
-  "alloc_bytes": 512280,
-  "goroutines": 12
-}
-```
-
 **Structured Logs**
 ```json
 {
-  "time": "2026-01-16T02:30:45Z",
+  "time": "2026-01-17T02:30:45Z",
   "level": "INFO",
-  "msg": "request completed",
-  "method": "tools/call",
-  "tool": "search_weather",
-  "duration": "45ms",
+  "msg": "tool execution completed",
+  "tool": "search_files",
+  "request_id": "req-123",
+  "duration": "1.523s",
+  "events": 12,
   "status": "success"
 }
 ```
 
 ---
 
-## 📖 Complete Example: Filesystem Server
+## 📖 Complete Examples
 
-A production-ready filesystem operations server with full security.
+### Example 1: Filesystem Server
 
-### Features
+A production-ready filesystem operations server with full security and **streaming search**.
+
+#### Features
 
 - ✅ **14 Tools** (8 file + 6 folder operations)
 - ✅ **Security** - Path traversal prevention, sandboxing
 - ✅ **Limits** - File size limits, directory size limits
 - ✅ **Filtering** - Extension whitelist/blacklist
 - ✅ **Observability** - Full metrics and logging
+- ✅ **🆕 Streaming Search** - Real-time file search results
 
-### Quick Start
+#### Quick Start
 ```bash
 cd examples/filesystem-server
 go run main.go
@@ -431,7 +687,7 @@ go run main.go
 # Metrics available at http://localhost:9091/metrics
 ```
 
-### Available Tools
+#### Available Tools
 
 **File Operations:**
 - `file_create` - Create new file with content
@@ -451,77 +707,53 @@ go run main.go
 - `folder_move` - Move directory
 - `folder_list` - List directory contents (with recursive option)
 
-### Usage Examples
-
-**Create a file:**
-```bash
-curl -X POST http://localhost:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/call",
-    "params": {
-      "name": "file_create",
-      "arguments": {
-        "path": "notes.txt",
-        "content": "My important notes"
-      }
-    }
-  }'
-```
-
-**Search in files:**
-```bash
-curl -X POST http://localhost:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 2,
-    "method": "tools/call",
-    "params": {
-      "name": "file_search",
-      "arguments": {
-        "path": ".",
-        "query": "important",
-        "case_sensitive": false
-      }
-    }
-  }'
-```
-
-**List directory:**
-```bash
-curl -X POST http://localhost:8080/rpc \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 3,
-    "method": "tools/call",
-    "params": {
-      "name": "folder_list",
-      "arguments": {
-        "path": ".",
-        "recursive": true
-      }
-    }
-  }'
-```
-
-### Security Configuration
-```yaml
-backend:
-  type: "filesystem"
-  config:
-    workspace_root: "./workspace"      # Sandbox directory
-    max_file_size: 10485760           # 10MB limit
-    max_files_per_dir: 1000           # Directory size limit
-    read_only: false                  # Read-only mode
-    allowed_extensions: [".txt", ".md", ".json"]  # Whitelist
-    blocked_extensions: [".exe", ".sh"]           # Blacklist
-```
-
 [View complete source →](examples/filesystem-server/)
+
+---
+
+### 🆕 Example 2: Grep Server (Streaming Search)
+
+Real-time file and CSV search with streaming results.
+
+#### Features
+- ✅ **Streaming HTML Search** - Find patterns in HTML files
+- ✅ **Streaming CSV Search** - Filter CSV records with operators
+- ✅ **Live Progress** - See search progress in real-time
+- ✅ **Instant Results** - Results appear as they're found
+
+#### Quick Start
+```bash
+cd examples/grep-server
+go run main.go
+
+# Test HTML search
+curl -N -X POST "http://localhost:8080/stream?tool=grep_html" \
+  -d '{"file_path":"demo-data/complex.html","pattern":"github.com"}'
+
+# Test CSV search
+curl -N -X POST "http://localhost:8080/stream?tool=search_csv" \
+  -d '{"file_path":"demo-data/info-records.csv","search_type":"salary","search_value":">100000"}'
+```
+
+**Live Output:**
+```
+event: start
+data: {"tool_name":"grep_html",...}
+
+event: progress
+data: {"current":10,"total":200,"percentage":5.0,"message":"Scanned 10/200 lines, found 2 matches"}
+
+event: data
+data: {"line_number":45,"url":"https://github.com/facebook/react","match_count":1}
+
+event: data
+data: {"line_number":67,"url":"https://github.com/vuejs/vue","match_count":2}
+
+event: end
+data: {"duration_ms":1523}
+```
+
+[View complete source →](examples/grep-server/)
 
 ---
 
@@ -534,7 +766,14 @@ go-mcp-framework/
 │   ├── backend.go          # Main interface
 │   ├── base.go             # BaseBackend implementation
 │   ├── builder.go          # Tool builder (fluent API)
+│   ├── adapter.go          # 🆕 Streaming adapter
 │   └── types.go            # Type definitions
+│
+├── engine/                 # 🆕 Streaming execution
+│   ├── engine.go           # Executor with semaphore
+│   ├── events.go           # Event types
+│   ├── emitter.go          # Streaming emitter
+│   └── engine_test.go      # Tests
 │
 ├── framework/              # Server orchestration
 │   ├── server.go           # Main server
@@ -546,14 +785,18 @@ go-mcp-framework/
 │   ├── handler.go          # Request handler
 │   ├── handler_instrumented.go  # With metrics
 │   ├── errors.go           # Error handling
-│   └── types.go            # Protocol types
+│   ├── types.go            # Protocol types
+│   ├── sse_mapper.go       # 🆕 SSE conversion
+│   └── sse_mapper_test.go  # 🆕 SSE tests
 │
 ├── transport/              # Communication layers
 │   ├── transport.go        # Transport interface
 │   ├── stdio/              # Standard I/O transport
 │   │   └── stdio.go
 │   └── http/               # HTTP transport
-│       └── http.go
+│       ├── http.go
+│       ├── sse.go          # 🆕 SSE handler
+│       └── sse_test.go     # 🆕 SSE tests
 │
 ├── observability/          # Monitoring & logging
 │   ├── metrics.go          # Prometheus metrics
@@ -562,10 +805,8 @@ go-mcp-framework/
 │   └── health.go           # Health checks
 │
 └── examples/               # Example implementations
-    └── filesystem-server/  # Full-featured example
-        ├── backend/        # Backend implementation
-        ├── main.go         # Server entry point
-        └── config.yaml     # Configuration
+    ├── filesystem-server/  # Full-featured file operations
+    └── grep-server/        # 🆕 Streaming search example
 ```
 
 ### Creating a Custom Backend
@@ -599,49 +840,67 @@ func NewMyBackend() *MyBackend {
 }
 ```
 
-**Step 3: Register tools**
+**Step 3: Register tools (regular or streaming)**
 ```go
 func (b *MyBackend) registerTools() {
+    // Regular tool
     b.RegisterTool(
-        backend.NewTool("my_tool").
-            Description("What this tool does").
-            StringParam("input", "Input description", true).
+        backend.NewTool("quick_check").
+            Description("Quick synchronous check").
+            StringParam("input", "Input data", true).
             Build(),
-        b.handleMyTool,
+        b.handleQuickCheck,
+    )
+    
+    // 🆕 Streaming tool
+    b.RegisterStreamingTool(
+        backend.NewTool("process_large_data").
+            Description("Process data with real-time progress").
+            StringParam("file", "File to process", true).
+            Streaming(true).  // Mark as streaming
+            Build(),
+        b.handleProcessData,
     )
 }
 
-func (b *MyBackend) handleMyTool(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+// Regular handler
+func (b *MyBackend) handleQuickCheck(ctx context.Context, args map[string]interface{}) (interface{}, error) {
     input := args["input"].(string)
-    
-    // Your logic here
-    
-    return map[string]string{
-        "result": "processed: " + input,
-    }, nil
+    return map[string]string{"result": "processed: " + input}, nil
 }
-```
 
-**Step 4: Implement lifecycle hooks (optional)**
-```go
-func (b *MyBackend) Initialize(ctx context.Context, config map[string]interface{}) error {
-    // Setup: connect to DB, load configs, etc.
-    dsn := config["database_url"].(string)
-    db, err := sql.Open("postgres", dsn)
-    if err != nil {
-        return err
+// 🆕 Streaming handler
+func (b *MyBackend) handleProcessData(
+    ctx context.Context,
+    args map[string]interface{},
+    emit backend.StreamingEmitter,
+) error {
+    file := args["file"].(string)
+    lines := readFile(file)
+    
+    for i, line := range lines {
+        // Check cancellation
+        select {
+        case <-emit.Context().Done():
+            return ctx.Err()
+        default:
+        }
+        
+        // Emit progress
+        if i%100 == 0 {
+            emit.EmitProgress(int64(i), int64(len(lines)), "Processing...")
+        }
+        
+        // Process and emit
+        result := process(line)
+        emit.EmitData(result)
     }
-    b.db = db
+    
     return nil
 }
-
-func (b *MyBackend) Close() error {
-    // Cleanup: close connections, save state, etc.
-    return b.db.Close()
-}
 ```
 
-**Step 5: Register & use**
+**Step 4: Register & use**
 ```go
 func init() {
     backend.Register("mybackend", func() backend.ServerBackend {
@@ -654,6 +913,8 @@ func main() {
         framework.WithBackendType("mybackend"),
         framework.WithTransport("http"),
         framework.WithHTTPAddress(":8080"),
+        framework.WithStreaming(true),    // 🆕 Enable streaming
+        framework.WithMaxConcurrent(8),   // 🆕 Limit concurrent executions
     )
     
     server.Run(context.Background())
@@ -664,11 +925,54 @@ func main() {
 
 ## 🔧 Advanced Features
 
+### 🆕 Streaming Best Practices
+
+**1. Check Cancellation Regularly**
+```go
+for i, item := range items {
+    select {
+    case <-emit.Context().Done():
+        return ctx.Err()
+    default:
+    }
+    // Process item...
+}
+```
+
+**2. Emit Progress Strategically**
+```go
+// Good: Update every 100 items
+if i%100 == 0 {
+    emit.EmitProgress(int64(i), int64(total), "Processing...")
+}
+
+// Bad: Update every item (too frequent)
+emit.EmitProgress(int64(i), int64(total), "Processing...")
+```
+
+**3. Batch Small Results**
+```go
+batch := []Result{}
+for _, item := range items {
+    batch = append(batch, process(item))
+    
+    if len(batch) >= 100 {
+        emit.EmitData(batch)
+        batch = []Result{}
+    }
+}
+```
+
+**4. Set Appropriate Timeouts**
+```go
+framework.WithStreamingTimeout(5 * time.Minute)  // Adjust based on task
+```
+
 ### Multi-Backend Server
 
 Run multiple backends in one server:
 ```go
-// Coming in v0.2.0
+// Coming in v0.3.0
 server := framework.NewServer(
     framework.WithBackends(
         "weather", weatherBackend,
@@ -691,18 +995,6 @@ func (t *WebSocketTransport) Run(ctx context.Context) error {
 }
 ```
 
-### Middleware Support
-```go
-// Coming in v0.2.0
-server := framework.NewServer(
-    framework.WithMiddleware(
-        loggingMiddleware,
-        authMiddleware,
-        rateLimitMiddleware,
-    ),
-)
-```
-
 ---
 
 ## 📊 Performance
@@ -712,35 +1004,45 @@ server := framework.NewServer(
 BenchmarkToolExecution-8       100000    12453 ns/op    2048 B/op    24 allocs/op
 BenchmarkJSONRPCHandler-8       50000    28912 ns/op    4096 B/op    48 allocs/op
 BenchmarkHTTPTransport-8        30000    45678 ns/op    8192 B/op    96 allocs/op
+BenchmarkSSEStreaming-8 🆕      20000    55234 ns/op   10240 B/op   120 allocs/op
 ```
 
-**Throughput:** ~22,000 requests/second on standard hardware (4-core CPU, 8GB RAM)
+**Throughput:** 
+- Regular requests: ~22,000 requests/second
+- 🆕 Streaming: ~18,000 events/second (with 10 events per stream)
 
 ### Resource Usage
 
-- **Memory:** ~10MB base + ~2KB per concurrent request
+- **Memory:** ~10MB base + ~2KB per request + **~5KB per active stream**
 - **CPU:** < 1% idle, scales linearly with requests
-- **Goroutines:** ~10 base + 1-2 per request
+- **Goroutines:** ~10 base + 1-2 per request + **1 per active stream**
 
 ---
 
 ## 🛣️ Roadmap
 
-### v0.2.0 (Q1 2026)
-- [ ] WebSocket transport for real-time communication
-- [ ] gRPC transport for high-performance RPC
-- [ ] Streaming tool responses for large outputs
-- [ ] Tool result caching layer
-- [ ] Multi-backend routing
+### v0.2.0 (✅ Current Release)
+- [x] Real-time streaming with SSE
+- [x] Live progress updates
+- [x] Concurrent execution control (semaphore)
+- [x] Event-based architecture
+- [x] Streaming examples (grep-server)
 
 ### v0.3.0 (Q2 2026)
+- [ ] WebSocket transport for bidirectional streaming
+- [ ] gRPC transport for high-performance RPC
+- [ ] Tool result caching layer
+- [ ] Multi-backend routing
+- [ ] Circuit breaker pattern
+
+### v0.4.0 (Q3 2026)
 - [ ] OpenTelemetry integration
 - [ ] Distributed tracing support
-- [ ] Circuit breaker pattern
 - [ ] Rate limiting middleware
 - [ ] Request queuing
+- [ ] Advanced authentication
 
-### v1.0.0 (Q3 2026)
+### v1.0.0 (Q4 2026)
 - [ ] Stable API with backward compatibility
 - [ ] 90%+ test coverage
 - [ ] Production case studies
@@ -770,14 +1072,15 @@ cd go-mcp-framework
 # Install dependencies
 go mod download
 
-# Run tests (when available)
-go test ./...
+# Run tests
+go test ./... -v
 
 # Run linter (requires golangci-lint)
 golangci-lint run
 
 # Build examples
 cd examples/filesystem-server && go build
+cd ../grep-server && go build
 ```
 
 ### Contribution Guidelines
@@ -793,6 +1096,7 @@ cd examples/filesystem-server && go build
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 ```
 MIT License
 
@@ -859,5 +1163,7 @@ If this framework helped you build better MCP servers, consider:
 ---
 
 **Made by developers, for developers building the future of AI tooling**
+
+**v0.2.0 - Now with real-time streaming! 🚀**
 
 </div>

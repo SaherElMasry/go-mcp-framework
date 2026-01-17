@@ -3,59 +3,53 @@ package backend
 import (
 	"context"
 	"fmt"
-	"sort"
 	"sync"
 )
 
-// ServerBackend is the main interface that all backends must implement
+// ServerBackend interface for all backends
 type ServerBackend interface {
 	Name() string
-	ListTools(ctx context.Context) ([]ToolDefinition, error)
-	ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (interface{}, error)
-	ListResources(ctx context.Context) ([]ResourceDefinition, error)
-	ReadResource(ctx context.Context, uri string) (string, error)
 	Initialize(ctx context.Context, config map[string]interface{}) error
 	Close() error
+	ListTools() []ToolDefinition
+	GetTool(name string) (ToolDefinition, bool)
+	CallTool(ctx context.Context, name string, args map[string]interface{}) (interface{}, error)
+
+	// NEW: Streaming support
+	CallStreamingTool(ctx context.Context, name string, args map[string]interface{}, emit StreamingEmitter) error
+	IsStreamingTool(name string) bool
 }
 
-// BackendFactory is a function that creates a new backend instance
-type BackendFactory func() ServerBackend
+// StreamingEmitter is defined here to avoid circular imports
+// The actual engine.Emitter will implement this
+type StreamingEmitter interface {
+	EmitData(data interface{}) error
+	EmitProgress(current, total int64, message string) error
+	Context() context.Context
+}
 
+// Registry for backend factories
 var (
 	registry   = make(map[string]BackendFactory)
 	registryMu sync.RWMutex
 )
 
-// Register registers a backend factory with the given name
-func Register(name string, factory BackendFactory) {
-	if name == "" {
-		panic("backend: Register called with empty name")
-	}
-	if factory == nil {
-		panic(fmt.Sprintf("backend: Register called with nil factory for %q", name))
-	}
+// BackendFactory creates a backend instance
+type BackendFactory func() ServerBackend
 
+// Register registers a backend factory
+func Register(name string, factory BackendFactory) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
-
-	if _, exists := registry[name]; exists {
-		panic(fmt.Sprintf("backend: Register called twice for %q", name))
-	}
-
 	registry[name] = factory
 }
 
-// New creates a new backend instance by name
-func New(name string) (ServerBackend, error) {
+// Get retrieves a backend factory
+func Get(name string) (BackendFactory, bool) {
 	registryMu.RLock()
-	factory, exists := registry[name]
-	registryMu.RUnlock()
-
-	if !exists {
-		return nil, fmt.Errorf("unknown backend: %q (available: %v)", name, List())
-	}
-
-	return factory(), nil
+	defer registryMu.RUnlock()
+	factory, ok := registry[name]
+	return factory, ok
 }
 
 // List returns all registered backend names
@@ -67,6 +61,14 @@ func List() []string {
 	for name := range registry {
 		names = append(names, name)
 	}
-	sort.Strings(names)
 	return names
+}
+
+// Create creates a backend instance
+func Create(name string) (ServerBackend, error) {
+	factory, ok := Get(name)
+	if !ok {
+		return nil, fmt.Errorf("backend not found: %s", name)
+	}
+	return factory(), nil
 }

@@ -1,131 +1,70 @@
 package observability
 
 import (
-	"context"
 	"log/slog"
 	"os"
 )
 
-// LoggingConfig configures logging
-type LoggingConfig struct {
-	Level     string // ✅ Changed from LogLevel to string
-	Format    string
-	AddSource bool
-}
+// LoggingConfig is imported from framework package when needed
+// It's defined in framework/config.go
 
-// NewLogger creates a new structured logger
-func NewLogger(config LoggingConfig) *slog.Logger {
+// SetupLogging configures structured logging based on config
+func SetupLogging(config interface{}) *slog.Logger {
+	// Use type assertion to extract fields
 	var level slog.Level
-	switch config.Level {
-	case "debug":
-		level = slog.LevelDebug
-	case "info":
+	var format string
+	var addSource bool
+
+	// Handle the config as a generic interface
+	// This works with any struct that has Level, Format, AddSource fields
+	if cfg, ok := config.(struct {
+		Level     string
+		Format    string
+		AddSource bool
+	}); ok {
+		level = parseLevel(cfg.Level)
+		format = cfg.Format
+		addSource = cfg.AddSource
+	} else {
+		// Default values if type assertion fails
 		level = slog.LevelInfo
-	case "warn":
-		level = slog.LevelWarn
-	case "error":
-		level = slog.LevelError
-	default:
-		level = slog.LevelInfo
+		format = "json"
+		addSource = false
 	}
 
+	// Create handler options
 	opts := &slog.HandlerOptions{
 		Level:     level,
-		AddSource: config.AddSource,
+		AddSource: addSource,
 	}
 
 	var handler slog.Handler
-	if config.Format == "json" {
-		handler = slog.NewJSONHandler(os.Stderr, opts)
-	} else {
-		handler = slog.NewTextHandler(os.Stderr, opts)
+
+	// Choose format
+	switch format {
+	case "json":
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	case "text":
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	default:
+		handler = slog.NewJSONHandler(os.Stdout, opts)
 	}
 
 	return slog.New(handler)
 }
 
-// LoggerFromContext extracts logger from context or returns default
-func LoggerFromContext(ctx context.Context) *slog.Logger {
-	if logger, ok := ctx.Value(loggerKey{}).(*slog.Logger); ok {
-		return logger
+// parseLevel converts string to slog.Level
+func parseLevel(levelStr string) slog.Level {
+	switch levelStr {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
-	return slog.Default()
 }
-
-// ContextWithLogger adds logger to context
-func ContextWithLogger(ctx context.Context, logger *slog.Logger) context.Context {
-	return context.WithValue(ctx, loggerKey{}, logger)
-}
-
-type loggerKey struct{}
-
-// package observability
-
-// import (
-// 	"context"
-// 	"log/slog"
-// 	"os"
-// )
-
-// // LogLevel represents log severity levels
-// type LogLevel string
-
-// const (
-// 	LogLevelDebug LogLevel = "debug"
-// 	LogLevelInfo  LogLevel = "info"
-// 	LogLevelWarn  LogLevel = "warn"
-// 	LogLevelError LogLevel = "error"
-// )
-
-// // LoggingConfig configures logging
-// type LoggingConfig struct {
-// 	Level     string
-// 	Format    string
-// 	AddSource bool
-// }
-
-// // NewLogger creates a new structured logger
-// func NewLogger(config LoggingConfig) *slog.Logger {
-// 	var level slog.Level
-// 	switch LogLevel(config.Level) {
-// 	case LogLevelDebug:
-// 		level = slog.LevelDebug
-// 	case LogLevelInfo:
-// 		level = slog.LevelInfo
-// 	case LogLevelWarn:
-// 		level = slog.LevelWarn
-// 	case LogLevelError:
-// 		level = slog.LevelError
-// 	default:
-// 		level = slog.LevelInfo
-// 	}
-
-// 	opts := &slog.HandlerOptions{
-// 		Level:     level,
-// 		AddSource: config.AddSource,
-// 	}
-
-// 	var handler slog.Handler
-// 	if config.Format == "json" {
-// 		handler = slog.NewJSONHandler(os.Stderr, opts)
-// 	} else {
-// 		handler = slog.NewTextHandler(os.Stderr, opts)
-// 	}
-
-// 	return slog.New(handler)
-// }
-
-// // LoggerFromContext extracts logger from context or returns default
-// func LoggerFromContext(ctx context.Context) *slog.Logger {
-// 	if logger, ok := ctx.Value(loggerKey{}).(*slog.Logger); ok {
-// 		return logger
-// 	}
-// 	return slog.Default()
-// }
-
-// // ContextWithLogger adds logger to context
-// func ContextWithLogger(ctx context.Context, logger *slog.Logger) context.Context {
-// 	return context.WithValue(ctx, loggerKey{}, logger)
-// }
-
-// type loggerKey struct{}

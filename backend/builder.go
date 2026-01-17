@@ -1,100 +1,95 @@
 package backend
 
-// ToolBuilder provides a fluent API for building tool definitions
+// ToolBuilder provides fluent API for building tool definitions
 type ToolBuilder struct {
-	tool ToolDefinition
+	name        string
+	description string
+	parameters  []Parameter
+	streaming   bool // NEW
 }
 
 // NewTool creates a new tool builder
 func NewTool(name string) *ToolBuilder {
 	return &ToolBuilder{
-		tool: ToolDefinition{
-			Name: name,
-			InputSchema: Schema{
-				Type:       "object",
-				Properties: make(map[string]Property),
-				Required:   []string{},
-			},
-		},
+		name:       name,
+		parameters: make([]Parameter, 0),
 	}
 }
 
 // Description sets the tool description
 func (b *ToolBuilder) Description(desc string) *ToolBuilder {
-	b.tool.Description = desc
+	b.description = desc
 	return b
 }
 
 // StringParam adds a string parameter
 func (b *ToolBuilder) StringParam(name, description string, required bool) *ToolBuilder {
-	b.tool.InputSchema.Properties[name] = Property{
-		Type:        "string",
+	b.parameters = append(b.parameters, Parameter{
+		Name:        name,
 		Description: description,
-	}
-	if required {
-		b.tool.InputSchema.Required = append(b.tool.InputSchema.Required, name)
-	}
+		Type:        "string",
+		Required:    required,
+	})
 	return b
 }
 
 // IntParam adds an integer parameter
 func (b *ToolBuilder) IntParam(name, description string, required bool, min, max *int) *ToolBuilder {
-	var minF, maxF *float64
-	if min != nil {
-		f := float64(*min)
-		minF = &f
-	}
-	if max != nil {
-		f := float64(*max)
-		maxF = &f
-	}
-
-	b.tool.InputSchema.Properties[name] = Property{
-		Type:        "integer",
+	param := Parameter{
+		Name:        name,
 		Description: description,
-		Minimum:     minF,
-		Maximum:     maxF,
+		Type:        "integer",
+		Required:    required,
+		Minimum:     min,
+		Maximum:     max,
 	}
-	if required {
-		b.tool.InputSchema.Required = append(b.tool.InputSchema.Required, name)
-	}
+	b.parameters = append(b.parameters, param)
 	return b
 }
 
 // BoolParam adds a boolean parameter
 func (b *ToolBuilder) BoolParam(name, description string, required bool, defaultVal *bool) *ToolBuilder {
-	prop := Property{
-		Type:        "boolean",
+	param := Parameter{
+		Name:        name,
 		Description: description,
+		Type:        "boolean",
+		Required:    required,
 	}
 	if defaultVal != nil {
-		prop.Default = *defaultVal
+		param.Default = *defaultVal
 	}
-	b.tool.InputSchema.Properties[name] = prop
-	if required {
-		b.tool.InputSchema.Required = append(b.tool.InputSchema.Required, name)
-	}
+	b.parameters = append(b.parameters, param)
 	return b
 }
 
-// EnumParam adds an enum string parameter
+// EnumParam adds an enum parameter
 func (b *ToolBuilder) EnumParam(name, description string, required bool, values []string, defaultVal *string) *ToolBuilder {
-	prop := Property{
-		Type:        "string",
+	param := Parameter{
+		Name:        name,
 		Description: description,
+		Type:        "string",
+		Required:    required,
 		Enum:        values,
 	}
 	if defaultVal != nil {
-		prop.Default = *defaultVal
+		param.Default = *defaultVal
 	}
-	b.tool.InputSchema.Properties[name] = prop
-	if required {
-		b.tool.InputSchema.Required = append(b.tool.InputSchema.Required, name)
-	}
+	b.parameters = append(b.parameters, param)
 	return b
 }
 
-// Build returns the completed tool definition
+// Streaming marks the tool as supporting streaming (NEW)
+func (b *ToolBuilder) Streaming(enabled bool) *ToolBuilder {
+	b.streaming = enabled
+	return b
+}
+
+// Build creates the tool definition
 func (b *ToolBuilder) Build() ToolDefinition {
-	return b.tool
+	return ToolDefinition{
+		Name:        b.name,
+		Description: b.description,
+		Parameters:  b.parameters,
+		Streaming:   b.streaming,
+	}
 }
