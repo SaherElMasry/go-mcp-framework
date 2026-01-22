@@ -1,53 +1,88 @@
+// observability/logging.go
 package observability
 
 import (
+	"io"
 	"log/slog"
 	"os"
+
+	"github.com/SaherElMasry/go-mcp-framework/color"
 )
 
-// LoggingConfig is imported from framework package when needed
-// It's defined in framework/config.go
+// LoggingConfig represents logging configuration
+type LoggingConfig struct {
+	Level     string
+	Format    string
+	AddSource bool
+	Output    io.Writer
+}
 
 // SetupLogging configures structured logging based on config
 func SetupLogging(config interface{}) *slog.Logger {
-	// Use type assertion to extract fields
-	var level slog.Level
-	var format string
-	var addSource bool
-
-	// Handle the config as a generic interface
-	// This works with any struct that has Level, Format, AddSource fields
-	if cfg, ok := config.(struct {
-		Level     string
-		Format    string
-		AddSource bool
-	}); ok {
-		level = parseLevel(cfg.Level)
-		format = cfg.Format
-		addSource = cfg.AddSource
-	} else {
-		// Default values if type assertion fails
-		level = slog.LevelInfo
-		format = "json"
-		addSource = false
-	}
-
-	// Create handler options
-	opts := &slog.HandlerOptions{
-		Level:     level,
-		AddSource: addSource,
-	}
-
 	var handler slog.Handler
 
-	// Choose format
-	switch format {
-	case "json":
-		handler = slog.NewJSONHandler(os.Stdout, opts)
-	case "text":
-		handler = slog.NewTextHandler(os.Stdout, opts)
-	default:
-		handler = slog.NewJSONHandler(os.Stdout, opts)
+	// Auto-detect terminal
+	color.AutoDetect()
+
+	// Try to type assert to LoggingConfig
+	var cfg LoggingConfig
+	if logCfg, ok := config.(LoggingConfig); ok {
+		cfg = logCfg
+	} else if logCfgPtr, ok := config.(*LoggingConfig); ok {
+		cfg = *logCfgPtr
+	} else {
+		// Try to extract fields from any struct
+		if cfgStruct, ok := config.(struct {
+			Level     string
+			Format    string
+			AddSource bool
+			Output    io.Writer
+		}); ok {
+			cfg = LoggingConfig{
+				Level:     cfgStruct.Level,
+				Format:    cfgStruct.Format,
+				AddSource: cfgStruct.AddSource,
+				Output:    cfgStruct.Output,
+			}
+		} else {
+			// Default values
+			cfg = LoggingConfig{
+				Level:     "info",
+				Format:    "json",
+				AddSource: false,
+				Output:    os.Stdout,
+			}
+		}
+	}
+
+	// Ensure output is set
+	if cfg.Output == nil {
+		cfg.Output = os.Stdout
+	}
+
+	// Use colored handler for text format
+	if cfg.Format == "text" && color.IsEnabled() {
+		handler = color.NewColoredHandler(cfg.Output, &color.ColoredHandlerOptions{
+			Level:      parseLevel(cfg.Level),
+			TimeFormat: "15:04:05",
+			Writer:     cfg.Output,
+		})
+	} else {
+		// Create handler options
+		opts := &slog.HandlerOptions{
+			Level:     parseLevel(cfg.Level),
+			AddSource: cfg.AddSource,
+		}
+
+		// Choose format
+		switch cfg.Format {
+		case "json":
+			handler = slog.NewJSONHandler(cfg.Output, opts)
+		case "text":
+			handler = slog.NewTextHandler(cfg.Output, opts)
+		default:
+			handler = slog.NewJSONHandler(cfg.Output, opts)
+		}
 	}
 
 	return slog.New(handler)

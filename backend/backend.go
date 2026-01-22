@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/SaherElMasry/go-mcp-framework/auth"
 )
 
 // ServerBackend interface for all backends
@@ -11,6 +13,8 @@ type ServerBackend interface {
 	Name() string
 	Initialize(ctx context.Context, config map[string]interface{}) error
 	Close() error
+
+	// Tool management
 	ListTools() []ToolDefinition
 	GetTool(name string) (ToolDefinition, bool)
 	CallTool(ctx context.Context, name string, args map[string]interface{}) (interface{}, error)
@@ -18,6 +22,24 @@ type ServerBackend interface {
 	// NEW: Streaming support
 	CallStreamingTool(ctx context.Context, name string, args map[string]interface{}, emit StreamingEmitter) error
 	IsStreamingTool(name string) bool
+
+	// Resource management
+	ListResources() []Resource
+	ListPrompts() []Prompt
+
+	// === NEW: Auth Support ===
+
+	// SetAuthProvider sets the primary auth provider for this backend
+	SetAuthProvider(provider auth.AuthProvider)
+
+	// GetAuthProvider returns the primary auth provider
+	GetAuthProvider() auth.AuthProvider
+
+	// SetAuthManager sets the auth manager (for multi-provider scenarios)
+	SetAuthManager(manager *auth.Manager)
+
+	// GetAuthManager returns the auth manager
+	GetAuthManager() *auth.Manager
 }
 
 // StreamingEmitter is defined here to avoid circular imports
@@ -27,6 +49,10 @@ type StreamingEmitter interface {
 	EmitProgress(current, total int64, message string) error
 	Context() context.Context
 }
+
+// ============================================================
+// Backend Registry
+// ============================================================
 
 // Registry for backend factories
 var (
@@ -71,4 +97,29 @@ func Create(name string) (ServerBackend, error) {
 		return nil, fmt.Errorf("backend not found: %s", name)
 	}
 	return factory(), nil
+}
+
+// ============================================================
+// Type Definitions
+// ============================================================
+// Resource represents an MCP resource
+type Resource struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+}
+
+// Prompt represents an MCP prompt
+type Prompt struct {
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Arguments   []PromptArgument `json:"arguments,omitempty"`
+}
+
+// PromptArgument represents a prompt argument
+type PromptArgument struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
 }

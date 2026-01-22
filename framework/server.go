@@ -8,7 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/SaherElMasry/go-mcp-framework/auth"
 	"github.com/SaherElMasry/go-mcp-framework/backend"
+
+	"github.com/SaherElMasry/go-mcp-framework/color"
 	"github.com/SaherElMasry/go-mcp-framework/engine"
 	"github.com/SaherElMasry/go-mcp-framework/observability"
 	"github.com/SaherElMasry/go-mcp-framework/protocol"
@@ -28,12 +31,19 @@ type Server struct {
 
 	// Observability
 	metricsServer *observability.MetricsServer
+
+	authManager *auth.Manager // === NEW ===
 }
 
 // NewServer creates a new MCP server
 func NewServer(opts ...Option) *Server {
+	// Auto-detect color support
+	color.AutoDetect()
+
 	s := &Server{
-		config: DefaultConfig(),
+		config:      DefaultConfig(),
+		authManager: auth.NewManager(),
+		logger:      slog.Default(),
 	}
 
 	// Apply options
@@ -76,9 +86,30 @@ func (s *Server) Initialize(ctx context.Context) error {
 		}
 	}
 
+	// === NEW: Set auth manager on backend ===
+	if s.authManager != nil {
+		s.backend.SetAuthManager(s.authManager)
+
+		// Log registered auth providers
+		providers := s.authManager.List()
+		if len(providers) > 0 {
+			s.logger.Info("auth providers registered",
+				"count", len(providers),
+				"providers", providers)
+		}
+	}
+
 	// Initialize backend
 	if err := s.backend.Initialize(ctx, s.config.Backend.Config); err != nil {
 		return fmt.Errorf("failed to initialize backend: %w", err)
+	}
+
+	// === NEW: Validate all auth providers ===
+	if s.authManager != nil && len(s.authManager.List()) > 0 {
+		if err := s.authManager.ValidateAll(ctx); err != nil {
+			s.logger.Warn("auth validation failed", "error", err)
+			// Don't fail startup, just warn
+		}
 	}
 
 	// NEW: Initialize streaming executor
@@ -151,6 +182,14 @@ func (s *Server) Initialize(ctx context.Context) error {
 
 // Run starts the server
 func (s *Server) Run(ctx context.Context) error {
+	// Print colorful startup banner
+	if color.IsEnabled() {
+		PrintStartupBanner(
+			"MCP Server",
+			"v0.3.0",
+			"Production-ready MCP framework",
+		)
+	}
 	// Initialize
 	if err := s.Initialize(ctx); err != nil {
 		return err
@@ -180,6 +219,13 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Cleanup
 	s.logger.Info("server shutting down")
+
+	// === NEW: Close auth manager ===
+	if s.authManager != nil {
+		if err := s.authManager.Close(); err != nil {
+			s.logger.Error("auth manager close error", "error", err)
+		}
+	}
 
 	if err := s.backend.Close(); err != nil {
 		s.logger.Error("backend close error", "error", err)
@@ -229,6 +275,8 @@ func (s *Server) RegisterBackend(b backend.ServerBackend) {
 		"style", "v0.2.0-full")
 }
 
+// === NEW: Public Getters for Auth ===
+//
 // GetBackend returns the current backend
 func (s *Server) GetBackend() backend.ServerBackend {
 	return s.backend
@@ -237,4 +285,14 @@ func (s *Server) GetBackend() backend.ServerBackend {
 // GetExecutor returns the streaming executor
 func (s *Server) GetExecutor() *engine.Executor {
 	return s.executor
+}
+
+// GetAuthManager returns the auth manager
+func (s *Server) GetAuthManager() *auth.Manager {
+	return s.authManager
+}
+
+// GetLogger returns the logger
+func (s *Server) GetLogger() *slog.Logger {
+	return s.logger
 }

@@ -2,6 +2,7 @@ package backend
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/csv"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/SaherElMasry/go-mcp-framework/backend"
 )
@@ -86,167 +88,242 @@ func (gb *GrepBackend) resolvePath(path string) string {
 }
 
 // handleGrepHTML searches HTML files for patterns
+// func (gb *GrepBackend) handleGrepHTML(ctx context.Context, args map[string]interface{}, emit backend.StreamingEmitter) error {
+// 	// Extract arguments
+// 	filePath := args["file_path"].(string)
+// 	pattern := "href="
+// 	if p, ok := args["pattern"].(string); ok && p != "" {
+// 		pattern = p
+// 	}
+
+// 	// Resolve path
+// 	fullPath := gb.resolvePath(filePath)
+
+// 	// Open file
+// 	file, err := os.Open(fullPath)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to open file %s: %w (tried: %s)", filePath, err, fullPath)
+// 	}
+// 	defer file.Close()
+
+// 	// Count total lines for progress
+// 	totalLines := countLines(fullPath)
+
+// 	// Scan file line by line
+// 	scanner := bufio.NewScanner(file)
+// 	lineNum := 0
+// 	matchCount := 0
+
+// 	for scanner.Scan() {
+// 		// Check for cancellation
+// 		select {
+// 		case <-emit.Context().Done():
+// 			return ctx.Err()
+// 		default:
+// 		}
+
+// 		lineNum++
+// 		line := scanner.Text()
+
+// 		// Emit progress every 10 lines
+// 		if lineNum%10 == 0 {
+// 			emit.EmitProgress(
+// 				int64(lineNum),
+// 				int64(totalLines),
+// 				fmt.Sprintf("Scanned %d/%d lines, found %d matches", lineNum, totalLines, matchCount),
+// 			)
+// 		}
+
+// 		// Check if line contains pattern
+// 		if strings.Contains(line, pattern) {
+// 			matchCount++
+
+// 			// Extract URL if searching for href
+// 			url := extractURL(line, pattern)
+
+// 			// Emit match
+// 			emit.EmitData(map[string]interface{}{
+// 				"line_number": lineNum,
+// 				"line_text":   strings.TrimSpace(line),
+// 				"url":         url,
+// 				"match_count": matchCount,
+// 			})
+// 		}
+// 	}
+
+// 	if err := scanner.Err(); err != nil {
+// 		return fmt.Errorf("error reading file: %w", err)
+// 	}
+
+// 	// Final progress
+// 	emit.EmitProgress(
+// 		int64(totalLines),
+// 		int64(totalLines),
+// 		fmt.Sprintf("Complete! Found %d matches in %d lines", matchCount, totalLines),
+// 	)
+
+//		return nil
+//	}
+//
+// // === Fast optimizedGrepHTML ===//
 func (gb *GrepBackend) handleGrepHTML(ctx context.Context, args map[string]interface{}, emit backend.StreamingEmitter) error {
-	// Extract arguments
 	filePath := args["file_path"].(string)
-	pattern := "href="
-	if p, ok := args["pattern"].(string); ok && p != "" {
-		pattern = p
-	}
+	pattern := strings.ToLower(args["pattern"].(string)) // Pre-lowercase for speed
 
-	// Resolve path
 	fullPath := gb.resolvePath(filePath)
-
-	// Open file
 	file, err := os.Open(fullPath)
 	if err != nil {
-		return fmt.Errorf("failed to open file %s: %w (tried: %s)", filePath, err, fullPath)
+		return fmt.Errorf("failed to open HTML: %w", err)
 	}
 	defer file.Close()
 
-	// Count total lines for progress
-	totalLines := countLines(fullPath)
-
-	// Scan file line by line
+	// OPTIMIZATION: Use a large 64KB buffer for scanning
+	// This prevents "token too long" errors on minified HTML files
 	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 1024*1024) // Can expand up to 1MB per line
+
 	lineNum := 0
-	matchCount := 0
+	matches := 0
+	start := time.Now()
+
+	// Replace the loop with this "Zero-Copy" version
+	patternBytes := []byte(strings.ToLower(pattern))
 
 	for scanner.Scan() {
-		// Check for cancellation
-		select {
-		case <-emit.Context().Done():
-			return ctx.Err()
-		default:
-		}
-
 		lineNum++
-		line := scanner.Text()
+		// Get the raw bytes without creating a string
+		lineBytes := scanner.Bytes()
 
-		// Emit progress every 10 lines
-		if lineNum%10 == 0 {
-			emit.EmitProgress(
-				int64(lineNum),
-				int64(totalLines),
-				fmt.Sprintf("Scanned %d/%d lines, found %d matches", lineNum, totalLines, matchCount),
-			)
-		}
-
-		// Check if line contains pattern
-		if strings.Contains(line, pattern) {
-			matchCount++
-
-			// Extract URL if searching for href
-			url := extractURL(line, pattern)
-
-			// Emit match
+		// Search directly in the bytes
+		if bytes.Contains(bytes.ToLower(lineBytes), patternBytes) {
+			matches++
 			emit.EmitData(map[string]interface{}{
 				"line_number": lineNum,
-				"line_text":   strings.TrimSpace(line),
-				"url":         url,
-				"match_count": matchCount,
+				"content":     string(lineBytes), // Only convert to string when we find a match!
 			})
 		}
 	}
+	duration := time.Since(start)
+	emit.EmitProgress(int64(lineNum), int64(lineNum),
+		fmt.Sprintf("✅ HTML Scan complete! Checked %d lines in %v. Found %d matches.", lineNum, duration, matches))
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading file: %w", err)
-	}
-
-	// Final progress
-	emit.EmitProgress(
-		int64(totalLines),
-		int64(totalLines),
-		fmt.Sprintf("Complete! Found %d matches in %d lines", matchCount, totalLines),
-	)
-
-	return nil
+	return scanner.Err()
 }
 
-// handleSearchCSV searches CSV files by field
+// === FastOptimization ===//
 func (gb *GrepBackend) handleSearchCSV(ctx context.Context, args map[string]interface{}, emit backend.StreamingEmitter) error {
+	start := time.Now() // Add this at the very top
+
 	filePath := args["file_path"].(string)
 	searchType := args["search_type"].(string)
-	searchValue := args["search_value"].(string)
+	searchLower := strings.ToLower(args["search_value"].(string))
 
-	// Resolve path
 	fullPath := gb.resolvePath(filePath)
-
-	// Open CSV
 	file, err := os.Open(fullPath)
 	if err != nil {
-		return fmt.Errorf("failed to open CSV %s: %w (tried: %s)", filePath, err, fullPath)
+		return fmt.Errorf("failed to open CSV: %w", err)
 	}
 	defer file.Close()
 
-	reader := csv.NewReader(file)
+	// OPTIMIZATION 1: Buffered Reading (64KB chunks)
+	// This reduces the "Syscall" overhead you saw in pprof
+	bufferedFile := bufio.NewReaderSize(file, 64*1024)
+
+	reader := csv.NewReader(bufferedFile)
+
+	// OPTIMIZATION 2: Reuse Record Slice
+	// This stops Go from creating a new slice for every single line
+	reader.ReuseRecord = true
 
 	// Read header
 	header, err := reader.Read()
 	if err != nil {
-		return fmt.Errorf("failed to read header: %w", err)
+		return err
 	}
 
-	// Find column index
-	columnIndex := findColumnIndex(header, searchType)
+	// We must COPY the header because ReuseRecord might interfere later
+	headerCopy := make([]string, len(header))
+	copy(headerCopy, header)
+
+	columnIndex := findColumnIndex(headerCopy, searchType)
 	if columnIndex == -1 {
-		return fmt.Errorf("unknown search type: %s (valid: name, email, age, salary, department)", searchType)
+		return fmt.Errorf("unknown search type: %s", searchType)
 	}
 
-	// Read all records for total count
-	records, err := reader.ReadAll()
-	if err != nil {
-		return fmt.Errorf("failed to read CSV: %w", err)
-	}
-
-	totalRecords := len(records)
 	matchCount := 0
+	currentRow := 0
 
-	// Search records
-	for i, record := range records {
-		// Check cancellation
-		select {
-		case <-emit.Context().Done():
-			return ctx.Err()
-		default:
+	for {
+		record, err := reader.Read()
+		if err != nil {
+			break // EOF
 		}
+		currentRow++
 
-		// Progress update every 5 records
-		if i%5 == 0 {
-			emit.EmitProgress(
-				int64(i+1),
-				int64(totalRecords),
-				fmt.Sprintf("Searched %d/%d records, found %d matches", i+1, totalRecords, matchCount),
-			)
-		}
-
-		// Check if matches
-		if matchesSearch(record[columnIndex], searchValue, searchType) {
+		// Optimized search check
+		if matchesSearchOptimized(record[columnIndex], searchLower, searchType) {
 			matchCount++
 
-			// Parse record
-			user := parseUserRecord(header, record)
+			// parseUserRecord creates a map, which is fine for matches
+			user := parseUserRecord(headerCopy, record)
 
-			// Emit match
 			emit.EmitData(map[string]interface{}{
-				"record_number": i + 1,
-				"match_count":   matchCount,
+				"record_number": currentRow,
 				"user":          user,
-				"matched_field": searchType,
-				"matched_value": record[columnIndex],
 			})
+		}
+
+		// Progress update (every 50 rows for less overhead)
+		if currentRow%50 == 0 {
+			emit.EmitProgress(int64(currentRow), 0, "Scanning...")
 		}
 	}
 
-	// Final progress
+	// At the very end, before 'return nil':
+	duration := time.Since(start)
 	emit.EmitProgress(
-		int64(totalRecords),
-		int64(totalRecords),
-		fmt.Sprintf("Search complete! Found %d matches out of %d records", matchCount, totalRecords),
+		int64(currentRow),
+		int64(currentRow),
+		fmt.Sprintf("✅ Search complete! Scanned %d rows in %v. Found %d matches.", currentRow, duration, matchCount),
 	)
 
 	return nil
 }
+
+// matchesSearchOptimized avoids memory allocations seen in pprof
+func matchesSearchOptimized(value, searchLower, searchType string) bool {
+	switch searchType {
+	case "name", "email", "department", "status":
+		// strings.Contains(strings.ToLower) is still needed for substring search,
+		// but searchLower is now pre-computed outside the loop.
+		return strings.Contains(strings.ToLower(value), searchLower)
+
+	case "age", "salary":
+		// Direct numeric logic to avoid extra function calls
+		valNum, err := strconv.Atoi(value)
+		if err != nil {
+			return false
+		}
+
+		if strings.HasPrefix(searchLower, ">") {
+			threshold, _ := strconv.Atoi(strings.TrimPrefix(searchLower, ">"))
+			return valNum > threshold
+		}
+		if strings.HasPrefix(searchLower, "<") {
+			threshold, _ := strconv.Atoi(strings.TrimPrefix(searchLower, "<"))
+			return valNum < threshold
+		}
+
+		searchNum, err := strconv.Atoi(searchLower)
+		return err == nil && valNum == searchNum
+
+	default:
+		return strings.EqualFold(value, searchLower)
+	}
+}
+
+// /////////////////////////////////////////////
 
 // Helper functions
 
@@ -305,40 +382,6 @@ func findColumnIndex(header []string, searchType string) int {
 		}
 	}
 	return -1
-}
-
-func matchesSearch(value, searchValue, searchType string) bool {
-	switch searchType {
-	case "name", "email", "department", "status":
-		// Case-insensitive substring match
-		return strings.Contains(strings.ToLower(value), strings.ToLower(searchValue))
-
-	case "age", "salary":
-		// Numeric comparison - can search for exact or range
-		recordNum, err := strconv.Atoi(value)
-		if err != nil {
-			return false
-		}
-
-		// Support ">X", "<X", or exact match
-		if strings.HasPrefix(searchValue, ">") {
-			threshold, _ := strconv.Atoi(strings.TrimPrefix(searchValue, ">"))
-			return recordNum > threshold
-		}
-		if strings.HasPrefix(searchValue, "<") {
-			threshold, _ := strconv.Atoi(strings.TrimPrefix(searchValue, "<"))
-			return recordNum < threshold
-		}
-
-		searchNum, err := strconv.Atoi(searchValue)
-		if err != nil {
-			return false
-		}
-		return recordNum == searchNum
-
-	default:
-		return strings.Contains(strings.ToLower(value), strings.ToLower(searchValue))
-	}
 }
 
 func parseUserRecord(header, record []string) map[string]string {

@@ -1,0 +1,40 @@
+# GitHub MCP Server - .gitignore
+
+# Configuration with secrets
+config/github.yaml
+github.yaml
+*.yaml
+!*.example.yaml
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+/bin/
+/dist/
+/build/
+server
+
+# Logs
+*.log
+
+# Test binaries
+github-test

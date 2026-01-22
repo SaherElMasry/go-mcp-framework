@@ -1,0 +1,43 @@
+# Weather MCP Server Configuration (Framework v0.3.0)
+# Production-ready setup with auth, streaming, and observability
+
+backend:
+  type: "weather"
+  config:
+    # WeatherAPI.com credentials
+    # Sign up: https://www.weatherapi.com/signup.aspx
+    api_key: "${WEATHER_API_KEY}" # Read from environment
+    base_url: "https://api.weatherapi.com/v1"
+    timeout: 30s
+    rate_limit: 100 # Requests per minute
+    cache_ttl: 300 # Cache results for 5 minutes
+
+# Transport configuration
+transport:
+  type: "http"
+  http:
+    address: ":8080"
+    read_timeout: 30s
+    write_timeout: 30s
+    max_request_size: 1048576 # 1MB
+    allowed_origins: ["*"]
+
+# Streaming configuration
+streaming:
+  enabled: true
+  buffer_size: 100
+  timeout: 300s
+  max_concurrent: 8
+  max_events: 1000
+
+# Observability configuration
+observability:
+  enabled: true
+  metrics_address: ":9091"
+
+# Logging configuration
+logging:
+  level: "info" # debug, info, warn, error
+  format: "json" # json or text
+  add_source: true
+  output: "stdout" # or file path like "logs/weather-server.log"
