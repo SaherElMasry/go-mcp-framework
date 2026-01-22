@@ -9,6 +9,7 @@
 [![Auth](https://img.shields.io/badge/Auth-OAuth2%20%7C%20API%20Key%20%7C%20Database-blue.svg)](#-authentication-system-new)
 [![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen.svg)](https://github.com/SaherElMasry/go-mcp-framework/actions)
 [![Coverage](https://img.shields.io/badge/Coverage-85%25-green.svg)](https://github.com/SaherElMasry/go-mcp-framework)
+[![GitHub stars](https://img.shields.io/github/stars/SaherElMasry/go-mcp-framework?style=social)](https://github.com/SaherElMasry/go-mcp-framework)
 
 **Production-ready framework for building [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers in Go with real-time streaming, enterprise authentication, and beautiful terminal output.**
 
