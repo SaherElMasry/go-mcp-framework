@@ -10,12 +10,10 @@
 [![Cache](https://img.shields.io/badge/Cache-LRU%20%7C%20TTL-purple.svg)](#-intelligent-caching-system-new)
 [![Performance](https://img.shields.io/badge/Performance-53x%20Faster-red.svg)](#-performance-benchmarks)
 [![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen.svg)](https://github.com/SaherElMasry/go-mcp-framework/actions)
-<<<<<<< HEAD
 [![Coverage](https://img.shields.io/badge/Coverage-85%25-green.svg)](https://github.com/SaherElMasry/go-mcp-framework)
 [![GitHub stars](https://img.shields.io/github/stars/SaherElMasry/go-mcp-framework?style=social)](https://github.com/SaherElMasry/go-mcp-framework)
-=======
 [![Coverage](https://img.shields.io/badge/Coverage-97%25-green.svg)](https://github.com/SaherElMasry/go-mcp-framework)
->>>>>>> 15d6c64 (Release v0.4.0 - Intelligent Caching)
+
 
 **Production-ready framework for building [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers in Go with real-time streaming, enterprise authentication, intelligent caching, and beautiful terminal output.**
 
