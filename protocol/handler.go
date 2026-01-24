@@ -5,14 +5,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/SaherElMasry/go-mcp-framework/backend"
+	"github.com/SaherElMasry/go-mcp-framework/cache"
 )
 
 // Handler handles JSON-RPC requests
 type Handler struct {
 	backend backend.ServerBackend
 	logger  *slog.Logger
+
+	// === NEW: Cache support ===
+	cache  cache.Cache
+	keyGen *cache.KeyGenerator
+	config *cache.Config
 }
 
 // NewHandler creates a new protocol handler
@@ -24,7 +31,15 @@ func NewHandler(backend backend.ServerBackend, logger *slog.Logger) *Handler {
 	return &Handler{
 		backend: backend,
 		logger:  logger,
+		// Cache will be set via SetCache() from framework
 	}
+}
+
+// === NEW: SetCache configures caching for this handler ===
+func (h *Handler) SetCache(c cache.Cache, keyGen *cache.KeyGenerator, config *cache.Config) {
+	h.cache = c
+	h.keyGen = keyGen
+	h.config = config
 }
 
 // Handle processes a JSON-RPC request
@@ -85,7 +100,7 @@ func (h *Handler) handleToolsList(ctx context.Context) (interface{}, *Error) {
 	}, nil
 }
 
-// handleToolsCall handles the tools/call method
+// handleToolsCall handles the tools/call method WITH CACHING
 func (h *Handler) handleToolsCall(ctx context.Context, params map[string]interface{}) (interface{}, *Error) {
 	toolName, ok := params["name"].(string)
 	if !ok {
@@ -97,6 +112,100 @@ func (h *Handler) handleToolsCall(ctx context.Context, params map[string]interfa
 		args = make(map[string]interface{})
 	}
 
+	// === NEW: Get tool definition to check if cacheable ===
+	tool, exists := h.backend.GetTool(toolName)
+	if !exists {
+		return nil, NewInternalError(fmt.Errorf("tool not found: %s", toolName))
+	}
+
+	// === NEW: Cache logic ===
+	if h.cache != nil && h.keyGen != nil && tool.IsCacheable() {
+		return h.handleCachedToolCall(ctx, toolName, args, tool)
+	}
+
+	// No cache or tool not cacheable - execute directly
+	return h.executeToolAndConvert(ctx, toolName, args)
+}
+
+// === NEW: handleCachedToolCall implements cache-aware tool execution ===
+func (h *Handler) handleCachedToolCall(ctx context.Context, toolName string, args map[string]interface{}, tool backend.ToolDefinition) (interface{}, *Error) {
+	// Generate cache key
+	cacheKey, err := h.keyGen.Generate(toolName, args)
+	if err != nil {
+		h.logger.Warn("cache key generation failed, executing without cache",
+			"tool", toolName,
+			"error", err)
+		return h.executeToolAndConvert(ctx, toolName, args)
+	}
+
+	// Try to get from cache
+	entry, err := h.cache.Get(ctx, cacheKey)
+	if err == nil && entry != nil {
+		// Cache hit!
+		h.logger.Debug("cache hit",
+			"tool", toolName,
+			"key", cacheKey,
+			"age", entry.Age(),
+			"hits", entry.Hits)
+
+		// Deserialize cached result
+		var cachedResult interface{}
+		if err := entry.Unmarshal(&cachedResult); err != nil {
+			h.logger.Warn("cache deserialization failed, executing",
+				"tool", toolName,
+				"error", err)
+			return h.executeToolAndConvert(ctx, toolName, args)
+		}
+
+		return cachedResult, nil
+	}
+
+	// Cache miss - execute tool
+	h.logger.Debug("cache miss",
+		"tool", toolName,
+		"key", cacheKey)
+
+	result, protoErr := h.executeToolAndConvert(ctx, toolName, args)
+	if protoErr != nil {
+		// Don't cache errors
+		return nil, protoErr
+	}
+
+	// Store result in cache
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		h.logger.Warn("failed to serialize result for caching",
+			"tool", toolName,
+			"error", err)
+		// Still return the result, just don't cache it
+		return result, nil
+	}
+
+	// Get TTL for this tool
+	var ttl time.Duration
+	if h.config != nil {
+		ttl = tool.GetCacheTTL(h.config.GetTTLDuration())
+	} else {
+		ttl = tool.GetCacheTTL(5 * time.Minute) // Fallback default
+	}
+
+	if err := h.cache.Set(ctx, cacheKey, resultJSON, ttl); err != nil {
+		h.logger.Warn("failed to cache result",
+			"tool", toolName,
+			"error", err)
+		// Still return the result, caching is not critical
+	} else {
+		h.logger.Debug("cached result",
+			"tool", toolName,
+			"key", cacheKey,
+			"ttl", ttl)
+	}
+
+	return result, nil
+}
+
+// === NEW: executeToolAndConvert is a helper to execute and convert results ===
+func (h *Handler) executeToolAndConvert(ctx context.Context, toolName string, args map[string]interface{}) (interface{}, *Error) {
 	// Execute tool
 	result, err := h.backend.CallTool(ctx, toolName, args)
 	if err != nil {

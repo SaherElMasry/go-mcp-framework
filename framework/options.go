@@ -7,6 +7,7 @@ import (
 
 	"github.com/SaherElMasry/go-mcp-framework/auth"
 	"github.com/SaherElMasry/go-mcp-framework/backend"
+	"github.com/SaherElMasry/go-mcp-framework/cache" // ADD THIS LINE
 )
 
 // Option configures the server
@@ -352,4 +353,75 @@ func WithMicrosoft(clientID, clientSecret, redirectURL string, scopes []string) 
 // WithSlack is a convenience function for Slack OAuth2
 func WithSlack(clientID, clientSecret, redirectURL string, scopes []string) Option {
 	return WithOAuth("slack", clientID, clientSecret, redirectURL, scopes)
+}
+
+// ============================================================
+// CACHE OPTIONS (NEW - v0.4.0)
+// ============================================================
+
+// WithCache configures response caching
+//
+// Example:
+//
+//	framework.NewServer(
+//	    framework.WithCache("short", 60), // 60 seconds
+//	)
+func WithCache(cacheType string, ttl int) Option {
+	return func(s *Server) {
+		s.cacheConfig = &cache.Config{
+			Type:      cache.Type(cacheType),
+			TTL:       ttl,
+			MaxSize:   1000,
+			Directory: ".mcp-cache",
+			Enabled:   true,
+			ToolTTL:   make(map[string]time.Duration),
+		}
+	}
+}
+
+// WithCacheConfig sets the complete cache configuration
+func WithCacheConfig(config *cache.Config) Option {
+	return func(s *Server) {
+		s.cacheConfig = config
+	}
+}
+
+// WithToolCacheTTL sets per-tool TTL override
+//
+// Example:
+//
+//	framework.NewServer(
+//	    framework.WithCache("short", 60),
+//	    framework.WithToolCacheTTL("search", 30*time.Second),
+//	)
+func WithToolCacheTTL(toolName string, ttl time.Duration) Option {
+	return func(s *Server) {
+		if s.cacheConfig == nil {
+			s.cacheConfig = cache.DefaultConfig()
+			s.cacheConfig.Enabled = true
+		}
+		if s.cacheConfig.ToolTTL == nil {
+			s.cacheConfig.ToolTTL = make(map[string]time.Duration)
+		}
+		s.cacheConfig.ToolTTL[toolName] = ttl
+	}
+}
+
+// WithCacheSize sets the maximum cache size (for memory cache)
+func WithCacheSize(maxSize int) Option {
+	return func(s *Server) {
+		if s.cacheConfig == nil {
+			s.cacheConfig = cache.DefaultConfig()
+			s.cacheConfig.Enabled = true
+		}
+		s.cacheConfig.MaxSize = maxSize
+	}
+}
+
+// WithCacheDisabled explicitly disables caching
+func WithCacheDisabled() Option {
+	return func(s *Server) {
+		s.cacheConfig = cache.DefaultConfig()
+		s.cacheConfig.Enabled = false
+	}
 }
