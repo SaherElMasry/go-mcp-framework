@@ -103,105 +103,59 @@ func (b *WeatherBackend) Initialize(ctx context.Context, config map[string]inter
 }
 
 // registerTools registers all available tools
+// In registerTools() function, update tool definitions:
 func (b *WeatherBackend) registerTools() {
-	// 1. Current Weather (non-streaming)
+	// 1. Current Weather - CACHEABLE (5 minutes)
 	b.RegisterTool(
-		backend.ToolDefinition{
-			Name:        "get_current_weather",
-			Description: "Get current weather for a location",
-			Parameters: []backend.Parameter{
-				{
-					Name:        "location",
-					Type:        "string",
-					Description: "City name, zip code, or coordinates (e.g., 'London', '10001', '48.8567,2.3508')",
-					Required:    true,
-				},
-			},
-		},
+		backend.NewTool("get_current_weather").
+			Description("Get current weather for a location").
+			StringParam("location", "City name, zip code, or coordinates", true).
+			WithCache(true, 5*time.Minute). // 🆕 CACHEABLE!
+			Build(),
 		b.handleGetCurrentWeather,
 	)
 
-	// 2. Weather Forecast (non-streaming)
+	// 2. Weather Forecast - CACHEABLE (30 minutes)
 	b.RegisterTool(
-		backend.ToolDefinition{
-			Name:        "get_forecast",
-			Description: "Get weather forecast for up to 10 days",
-			Parameters: []backend.Parameter{
-				{
-					Name:        "location",
-					Type:        "string",
-					Description: "City name, zip code, or coordinates",
-					Required:    true,
-				},
-				{
-					Name:        "days",
-					Type:        "integer",
-					Description: "Number of forecast days (1-10)",
-					Required:    false,
-					Default:     3,
-					Maximum:     intPtr(10),
-				},
-			},
-		},
+		backend.NewTool("get_forecast").
+			Description("Get weather forecast for up to 10 days").
+			StringParam("location", "City name, zip code, or coordinates", true).
+			IntParam("days", "Number of forecast days (1-10)", false, nil, intPtr(10)).
+			WithCache(true, 30*time.Minute). // 🆕 CACHEABLE!
+			Build(),
 		b.handleGetForecast,
 	)
 
-	// 3. Search Locations (streaming)
+	// 3. Search Locations - STREAMING (not cacheable)
 	b.RegisterStreamingTool(
-		backend.ToolDefinition{
-			Name:        "search_locations",
-			Description: "Search for locations with real-time results",
-			Parameters: []backend.Parameter{
-				{
-					Name:        "query",
-					Type:        "string",
-					Description: "Search query (city name, partial name)",
-					Required:    true,
-				},
-			},
-			Streaming: true,
-		},
+		backend.NewTool("search_locations").
+			Description("Search for locations with real-time results").
+			StringParam("query", "Search query", true).
+			NonCacheable(). // 🆕 Explicitly non-cacheable
+			Streaming(true).
+			Build(),
 		b.handleSearchLocations,
 	)
 
-	// 4. Astronomy Data (non-streaming)
+	// 4. Astronomy - CACHEABLE (1 hour)
 	b.RegisterTool(
-		backend.ToolDefinition{
-			Name:        "get_astronomy",
-			Description: "Get astronomy data (sunrise, sunset, moon phase)",
-			Parameters: []backend.Parameter{
-				{
-					Name:        "location",
-					Type:        "string",
-					Description: "City name, zip code, or coordinates",
-					Required:    true,
-				},
-				{
-					Name:        "date",
-					Type:        "string",
-					Description: "Date in YYYY-MM-DD format (optional, defaults to today)",
-					Required:    false,
-				},
-			},
-		},
+		backend.NewTool("get_astronomy").
+			Description("Get astronomy data (sunrise, sunset, moon phase)").
+			StringParam("location", "City name, zip code, or coordinates", true).
+			StringParam("date", "Date in YYYY-MM-DD format (optional)", false).
+			WithCache(true, 1*time.Hour). // 🆕 CACHEABLE!
+			Build(),
 		b.handleGetAstronomy,
 	)
 
-	// 5. Bulk Weather Check (streaming)
+	// 5. Bulk Check - STREAMING (not cacheable)
 	b.RegisterStreamingTool(
-		backend.ToolDefinition{
-			Name:        "bulk_weather_check",
-			Description: "Get weather for multiple locations with progress tracking",
-			Parameters: []backend.Parameter{
-				{
-					Name:        "locations",
-					Type:        "string",
-					Description: "Comma-separated list of locations",
-					Required:    true,
-				},
-			},
-			Streaming: true,
-		},
+		backend.NewTool("bulk_weather_check").
+			Description("Get weather for multiple locations").
+			StringParam("locations", "Comma-separated list", true).
+			NonCacheable(). // 🆕 Explicitly non-cacheable
+			Streaming(true).
+			Build(),
 		b.handleBulkWeatherCheck,
 	)
 }

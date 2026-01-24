@@ -7,10 +7,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time" // ADD THIS IMPORT
 
 	"github.com/SaherElMasry/go-mcp-framework/auth"
 	"github.com/SaherElMasry/go-mcp-framework/backend"
-
+	"github.com/SaherElMasry/go-mcp-framework/cache" // ADD THIS IMPORT
 	"github.com/SaherElMasry/go-mcp-framework/color"
 	"github.com/SaherElMasry/go-mcp-framework/engine"
 	"github.com/SaherElMasry/go-mcp-framework/observability"
@@ -27,12 +28,17 @@ type Server struct {
 	backend    backend.ServerBackend
 	transport  transport.Transport
 	logger     *slog.Logger
-	executor   *engine.Executor // NEW: Streaming executor
+	executor   *engine.Executor
 
 	// Observability
 	metricsServer *observability.MetricsServer
 
-	authManager *auth.Manager // === NEW ===
+	authManager *auth.Manager
+
+	// === NEW: Cache support ===
+	cache       cache.Cache         // Cache instance
+	cacheConfig *cache.Config       // Cache configuration
+	keyGen      *cache.KeyGenerator // Key generator
 }
 
 // NewServer creates a new MCP server
@@ -44,6 +50,7 @@ func NewServer(opts ...Option) *Server {
 		config:      DefaultConfig(),
 		authManager: auth.NewManager(),
 		logger:      slog.Default(),
+		// Cache will be initialized in Initialize() if configured
 	}
 
 	// Apply options
@@ -77,6 +84,31 @@ func (s *Server) Initialize(ctx context.Context) error {
 		"backend", s.config.Backend.Type,
 		"transport", s.config.Transport.Type)
 
+	// === NEW: Initialize cache BEFORE backend ===
+	if s.cacheConfig != nil && s.cacheConfig.Enabled {
+		var err error
+		s.cache, err = cache.New(s.cacheConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create cache: %w", err)
+		}
+
+		s.keyGen = cache.NewKeyGenerator()
+
+		s.logger.Info("cache initialized",
+			"type", s.cacheConfig.Type,
+			"ttl", s.cacheConfig.GetTTLDuration(),
+			"max_size", s.cacheConfig.MaxSize)
+
+		// Start background cleanup for memory cache
+		if s.cacheConfig.Type == cache.TypeShort {
+			go s.startCacheCleanup(ctx)
+		}
+	} else {
+		// No cache configured - use NoOp
+		s.cache = cache.NewNoOpCache()
+		s.logger.Debug("cache disabled")
+	}
+
 	// Initialize backend if not provided
 	if s.backend == nil {
 		var err error
@@ -86,7 +118,7 @@ func (s *Server) Initialize(ctx context.Context) error {
 		}
 	}
 
-	// === NEW: Set auth manager on backend ===
+	// Set auth manager on backend
 	if s.authManager != nil {
 		s.backend.SetAuthManager(s.authManager)
 
@@ -104,21 +136,20 @@ func (s *Server) Initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize backend: %w", err)
 	}
 
-	// === NEW: Validate all auth providers ===
+	// Validate all auth providers
 	if s.authManager != nil && len(s.authManager.List()) > 0 {
 		if err := s.authManager.ValidateAll(ctx); err != nil {
 			s.logger.Warn("auth validation failed", "error", err)
-			// Don't fail startup, just warn
 		}
 	}
 
-	// NEW: Initialize streaming executor
+	// Initialize streaming executor
 	if s.config.Streaming.Enabled {
 		executorConfig := engine.ExecutorConfig{
 			BufferSize:    s.config.Streaming.BufferSize,
 			Timeout:       s.config.Streaming.Timeout,
 			MaxEvents:     s.config.Streaming.MaxEvents,
-			MaxConcurrent: s.config.Streaming.MaxConcurrent, // v2 semaphore
+			MaxConcurrent: s.config.Streaming.MaxConcurrent,
 		}
 		s.executor = engine.NewExecutor(executorConfig, s.logger)
 
@@ -150,6 +181,18 @@ func (s *Server) Initialize(ctx context.Context) error {
 		handler = protocol.NewHandler(s.backend, s.logger)
 	}
 
+	// === NEW: Configure cache in handler ===
+	if s.cache != nil && s.keyGen != nil {
+		// Type assertion to access SetCache
+		if h, ok := handler.(*protocol.InstrumentedHandler); ok {
+			h.SetCache(s.cache, s.keyGen, s.cacheConfig)
+		} else if h, ok := handler.(*protocol.Handler); ok {
+			h.SetCache(s.cache, s.keyGen, s.cacheConfig)
+		}
+		s.logger.Info("cache configured in protocol handler",
+			"enabled", s.cacheConfig.Enabled,
+			"type", s.cacheConfig.Type)
+	}
 	// Setup transport
 	switch s.config.Transport.Type {
 	case "http":
@@ -161,13 +204,12 @@ func (s *Server) Initialize(ctx context.Context) error {
 			AllowedOrigins: s.config.Transport.HTTP.AllowedOrigins,
 		}
 
-		// NEW: Pass executor for streaming support
 		s.transport = httpTransport.NewHTTPTransport(
 			handler,
 			httpConfig,
 			s.logger,
-			s.backend,  // NEW: For SSE streaming
-			s.executor, // NEW: For streaming execution
+			s.backend,
+			s.executor,
 		)
 
 	case "stdio":
@@ -180,16 +222,38 @@ func (s *Server) Initialize(ctx context.Context) error {
 	return nil
 }
 
+// === NEW: Background cache cleanup ===
+func (s *Server) startCacheCleanup(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if mc, ok := s.cache.(*cache.MemoryCache); ok {
+				removed := mc.CleanExpired()
+				if removed > 0 {
+					s.logger.Debug("cleaned expired cache entries",
+						"count", removed)
+				}
+			}
+		}
+	}
+}
+
 // Run starts the server
 func (s *Server) Run(ctx context.Context) error {
 	// Print colorful startup banner
 	if color.IsEnabled() {
 		PrintStartupBanner(
 			"MCP Server",
-			"v0.3.0",
-			"Production-ready MCP framework",
+			"v0.4.0", // UPDATE VERSION
+			"Production-ready MCP framework with caching",
 		)
 	}
+
 	// Initialize
 	if err := s.Initialize(ctx); err != nil {
 		return err
@@ -220,7 +284,14 @@ func (s *Server) Run(ctx context.Context) error {
 	// Cleanup
 	s.logger.Info("server shutting down")
 
-	// === NEW: Close auth manager ===
+	// === NEW: Close cache ===
+	if s.cache != nil {
+		if err := s.cache.Close(); err != nil {
+			s.logger.Error("cache close error", "error", err)
+		}
+	}
+
+	// Close auth manager
 	if s.authManager != nil {
 		if err := s.authManager.Close(); err != nil {
 			s.logger.Error("auth manager close error", "error", err)
@@ -250,10 +321,7 @@ func (s *Server) getAddress() string {
 	}
 }
 
-// NEW: v2-style simple registration
-
-// RegisterFunction registers a single streaming function as a tool (v2 style)
-// This is a simplified API for quick prototyping and simple use cases
+// RegisterFunction registers a single streaming function as a tool
 func (s *Server) RegisterFunction(name string, handler backend.StreamingHandler) {
 	functionBackend := backend.NewFunctionBackend(name, handler)
 	s.backend = functionBackend
@@ -263,8 +331,7 @@ func (s *Server) RegisterFunction(name string, handler backend.StreamingHandler)
 		"style", "v2-simple")
 }
 
-// RegisterBackend registers a full backend (v0.2.0 style)
-// This is the complete API for production use cases with multiple tools
+// RegisterBackend registers a full backend
 func (s *Server) RegisterBackend(b backend.ServerBackend) {
 	s.backend = b
 
@@ -275,8 +342,8 @@ func (s *Server) RegisterBackend(b backend.ServerBackend) {
 		"style", "v0.2.0-full")
 }
 
-// === NEW: Public Getters for Auth ===
-//
+// === NEW: Public Getters ===
+
 // GetBackend returns the current backend
 func (s *Server) GetBackend() backend.ServerBackend {
 	return s.backend
@@ -295,4 +362,21 @@ func (s *Server) GetAuthManager() *auth.Manager {
 // GetLogger returns the logger
 func (s *Server) GetLogger() *slog.Logger {
 	return s.logger
+}
+
+// === NEW: Cache Getters ===
+
+// GetCache returns the cache instance
+func (s *Server) GetCache() cache.Cache {
+	return s.cache
+}
+
+// GetKeyGenerator returns the key generator
+func (s *Server) GetKeyGenerator() *cache.KeyGenerator {
+	return s.keyGen
+}
+
+// GetCacheConfig returns the cache configuration
+func (s *Server) GetCacheConfig() *cache.Config {
+	return s.cacheConfig
 }

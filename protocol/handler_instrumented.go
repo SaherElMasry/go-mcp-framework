@@ -2,11 +2,12 @@ package protocol
 
 import (
 	"context"
-	"encoding/json" // FIXED: Added missing import
+	"encoding/json"
 	"log/slog"
 	"time"
 
 	"github.com/SaherElMasry/go-mcp-framework/backend"
+	"github.com/SaherElMasry/go-mcp-framework/cache"
 	"github.com/SaherElMasry/go-mcp-framework/observability"
 )
 
@@ -20,6 +21,11 @@ func NewInstrumentedHandler(backend backend.ServerBackend, logger *slog.Logger) 
 	return &InstrumentedHandler{
 		Handler: NewHandler(backend, logger),
 	}
+}
+
+// === NEW: SetCache forwards to underlying handler ===
+func (h *InstrumentedHandler) SetCache(c cache.Cache, keyGen *cache.KeyGenerator, config *cache.Config) {
+	h.Handler.SetCache(c, keyGen, config)
 }
 
 // Handle processes a request with metrics
